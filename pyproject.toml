@@ -4,13 +4,28 @@ version = "0.1.0"
 description = "Observabilidade, deteccao de drift e governanca para um modelo de credit scoring em producao."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-dependencies = []
+dependencies = [
+    "dagshub>=0.7.0",
+    "dvc>=3.67.0",
+    "evidently>=0.7.23",
+    "matplotlib>=3.11.0",
+    "mlflow>=3.16.0",
+    "numpy>=2.4.0",
+    "pandas>=2.3.0",
+    "pandera[pandas]>=0.33.0",
+    "pydantic-settings>=2.15.0",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.17.0",
+    "xgboost>=3.4.1",
+]
 
 [dependency-groups]
 dev = [
     "commitizen>=4.16.2",
     "pytest>=8.0.0",
     "ruff>=0.14.0",
+    # Le o .xls binario do dataset da UCI (formato OLE2, nao e um CSV renomeado).
+    "xlrd>=2.0.2",
 ]
 
 [tool.commitizen]
@@ -27,7 +42,7 @@ src = ["src", "tests", "scripts"]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 
 [tool.uv]

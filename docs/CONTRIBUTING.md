@@ -11,7 +11,13 @@ Como preparar o ambiente, seguir as convenções e validar o trabalho antes de c
 
 ```bash
 make install            # uv sync --all-groups (deps de prod + dev)
+cp .env.example .env    # preencha DAGSHUB_TOKEN / DAGSHUB_USER
+make validate-env       # confere Python, deps criticas, .env e token DagsHub
 ```
+
+O token sai de https://dagshub.com/settings/tokens. Sem ele o `make dvc-setup` (que
+grava a credencial do remote em `.dvc/config.local`, gitignored) e o tracking MLflow
+falham — ambos exigem o DagsHub.
 
 ## Convenções de Git
 
