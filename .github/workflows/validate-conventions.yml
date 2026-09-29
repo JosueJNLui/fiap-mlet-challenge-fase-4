@@ -1,0 +1,75 @@
+name: Validate conventions
+
+on:
+  pull_request:
+    branches:
+      - "**"
+  push:
+    branches:
+      - "**"
+    tags:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Git conventions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+
+      - name: Install dependencies
+        run: uv sync --all-groups --locked
+
+      - name: Validate branch name
+        if: github.ref_type == 'branch'
+        run: uv run python scripts/validate_branch.py "$BRANCH_NAME"
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+
+      - name: Validate commit messages
+        if: github.ref_type == 'branch'
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            COMMIT_RANGE="$BASE_SHA..$HEAD_SHA"
+          else
+            git fetch origin "$DEFAULT_BRANCH" --depth=1
+            MERGE_BASE=$(git merge-base "$HEAD_SHA" "origin/$DEFAULT_BRANCH" 2>/dev/null || true)
+
+            if [ -n "$MERGE_BASE" ]; then
+              COMMIT_RANGE="$MERGE_BASE..$HEAD_SHA"
+            elif printf '%s' "$BEFORE_SHA" | grep -Eq '^0+$'; then
+              COMMIT_RANGE="origin/$DEFAULT_BRANCH..$HEAD_SHA"
+            else
+              COMMIT_RANGE="$BEFORE_SHA..$HEAD_SHA"
+            fi
+          fi
+
+          echo "Validating commits in range: $COMMIT_RANGE"
+          uv run python scripts/validate_commits.py --range "$COMMIT_RANGE"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+
+      - name: Validate tag name
+        if: github.ref_type == 'tag'
+        run: uv run python scripts/validate_tags.py "$TAG_NAME"
+        env:
+          TAG_NAME: ${{ github.ref_name }}

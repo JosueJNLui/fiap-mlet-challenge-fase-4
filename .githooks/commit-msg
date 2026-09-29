@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+set -eu
+
+commit_msg_file="$1"
+
+echo "Validating commit message..."
+uv --cache-dir /tmp/uv-cache run python scripts/validate_commits.py --message "$(cat "$commit_msg_file")"

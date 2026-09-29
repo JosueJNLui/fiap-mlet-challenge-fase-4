@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -eu
+
+echo "Validating branch name..."
+uv --cache-dir /tmp/uv-cache run python scripts/validate_branch.py
