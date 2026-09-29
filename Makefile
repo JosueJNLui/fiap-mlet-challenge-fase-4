@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 .PHONY: help install install-hooks uninstall-hooks validate validate-env validate-branch validate-commits validate-tags \
-        lint test dvc-setup dvc-remote data-push data-pull
+        lint test dvc-setup dvc-remote data-download data-push data-pull
 
 UV      := uv --cache-dir /tmp/uv-cache
 DVC     := $(UV) run dvc
@@ -62,6 +62,9 @@ dvc-setup: ## Credencializa o remote do DVC (requer DAGSHUB_USER e DAGSHUB_TOKEN
 
 dvc-remote: ## Mostra o remote do DVC configurado.
 	$(DVC) remote list
+
+data-download: ## Baixa o dataset da UCI e converte o .xls para CSV em data/raw/.
+	$(UV) run python scripts/download_dataset.py
 
 data-push: ## Versiona data/raw com DVC e envia para o remote DagsHub.
 	$(DVC) add data/raw
