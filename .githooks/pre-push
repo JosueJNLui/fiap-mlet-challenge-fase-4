@@ -1,0 +1,40 @@
+#!/usr/bin/env sh
+set -eu
+
+zero_sha="0000000000000000000000000000000000000000"
+
+while read -r local_ref local_sha remote_ref remote_sha
+do
+	if [ "$local_sha" = "$zero_sha" ]; then
+		continue
+	fi
+
+	case "$local_ref" in
+		refs/heads/*)
+			branch_name=${local_ref#refs/heads/}
+
+			echo "Validating branch name: $branch_name"
+			uv --cache-dir /tmp/uv-cache run python scripts/validate_branch.py "$branch_name"
+
+			if [ "$remote_sha" = "$zero_sha" ]; then
+				default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##' || true)
+				if [ -n "$default_branch" ]; then
+					commit_range="origin/$default_branch..$local_sha"
+				else
+					commit_range="$local_sha"
+				fi
+			else
+				commit_range="$remote_sha..$local_sha"
+			fi
+
+			echo "Validating commits in range: $commit_range"
+			uv --cache-dir /tmp/uv-cache run python scripts/validate_commits.py --range "$commit_range"
+			;;
+		refs/tags/*)
+			tag_name=${local_ref#refs/tags/}
+
+			echo "Validating tag name: $tag_name"
+			uv --cache-dir /tmp/uv-cache run python scripts/validate_tags.py "$tag_name"
+			;;
+	esac
+done

@@ -1,0 +1,34 @@
+[project]
+name = "fiap-mlet-challenge-fase-4"
+version = "0.1.0"
+description = "Observabilidade, deteccao de drift e governanca para um modelo de credit scoring em producao."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "commitizen>=4.16.2",
+    "pytest>=8.0.0",
+    "ruff>=0.14.0",
+]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+version_provider = "pep621"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"  # menor versao suportada (requires-python >=3.12)
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.uv]
+package = false
