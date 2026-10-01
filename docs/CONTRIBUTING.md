@@ -19,6 +19,18 @@ O token sai de https://dagshub.com/settings/tokens. Sem ele o `make dvc-setup` (
 grava a credencial do remote em `.dvc/config.local`, gitignored) e o tracking MLflow
 falham — ambos exigem o DagsHub.
 
+## Dataset
+
+```bash
+make data-download   # baixa o dataset da UCI e converte o .xls para data/raw/
+make data-push       # versiona data/raw com DVC e envia para o remote DagsHub
+make data-pull       # recupera data/raw do remote (reprodução)
+```
+
+Fonte: [Default of Credit Card Clients](https://archive.ics.uci.edu/dataset/350),
+30.000 linhas × 25 colunas, Taiwan 2005, alvo binário `default payment next month`.
+O download é idempotente e `data/raw/` é ignorado pelo Git (versionado pelo DVC).
+
 ## Convenções de Git
 
 O projeto valida branches, commits e tags de forma automatizada. As regras completas
