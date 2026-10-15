@@ -1,7 +1,8 @@
 .DEFAULT_GOAL := help
 
 .PHONY: help install install-hooks uninstall-hooks validate validate-env validate-branch validate-commits validate-tags \
-        lint test dvc-setup dvc-remote data-download data-push data-pull
+        lint test dvc-setup dvc-remote data-download data-push data-pull \
+        reference train bad-batch demo-contract
 
 UV      := uv --cache-dir /tmp/uv-cache
 DVC     := $(UV) run dvc
@@ -72,3 +73,20 @@ data-push: ## Versiona data/raw com DVC e envia para o remote DagsHub.
 
 data-pull: ## Baixa data/raw do remote DagsHub (para reproducao).
 	$(DVC) pull -r origin
+
+# ── Etapa 1: contrato de dados e baseline ──────────────────────────────────────
+
+reference: ## Gera data/reference/ (referencia congelada) e data/reference/holdout.csv.
+	PYTHONPATH=src $(UV) run python -m creditmon.data
+
+train: ## Treina o baseline XGBoost, loga no MLflow e grava os artefatos locais.
+	PYTHONPATH=src $(UV) run python -m creditmon.train
+
+bad-batch: ## Gera um lote sujo para demonstrar que o contrato bloqueia a ingestao.
+	PYTHONPATH=src $(UV) run python scripts/create_bad_batch.py
+
+demo-contract: bad-batch ## Demonstra o contrato: lote limpo passa, lote sujo e bloqueado.
+	@echo "\n=== lote sujo (deve ser BLOQUEADO) ==="
+	@PYTHONPATH=src $(UV) run python scripts/validate_batch.py data/bad_batch/bad_batch.csv || true
+	@echo "\n=== lote de referencia (deve PASSAR) ==="
+	@PYTHONPATH=src $(UV) run python scripts/validate_batch.py data/reference/reference.csv
