@@ -16,6 +16,7 @@ monitoramento e documentação de compliance (LGPD).
 - [Arquitetura](#arquitetura)
 - [Setup](#setup)
 - [Etapa 1 — Contrato de dados e baseline](#etapa-1--contrato-de-dados-e-baseline)
+- [Etapa 2 — Simulação e detecção de drift](#etapa-2--simulação-e-detecção-de-drift)
 - [Comandos](#comandos)
 - [Governança e LGPD](#governança-e-lgpd)
 - [Convenções de Git](#convenções-de-git)
@@ -35,6 +36,7 @@ src/creditmon/
   data.py      # carga, validação e congelamento de referência/holdout
   train.py     # baseline XGBoost + MLflow (log, registro e alias `production`)
   tracking.py  # configuração do MLflow no DagsHub
+  simulation.py # lotes mensais de produção com data drift e concept drift
 scripts/       # download do dataset, validação de lote, gates de Git
 tests/         # pytest
 ```
@@ -96,6 +98,29 @@ idade de menor, domínio inválido, alvo inválido, `ID` duplicado) e
 make demo-contract
 ```
 
+## Etapa 2 — Simulação e detecção de drift
+
+**Dataset de produção.** `src/creditmon/simulation.py` parte do **holdout** congelado
+na Etapa 1 (dados que o modelo nunca viu) e o fatia em 6 lotes mensais
+(`2026-01` → `2026-06`, 1.000 clientes cada) com um choque econômico de intensidade
+crescente (0% → 100%). **Jan/2026 é o mês de controle, sem drift**, para provar que o
+monitor não dispara falso positivo.
+
+| Mecanismo | Tipo | O que muda (intensidade 100%) |
+| :-- | :-- | :-- |
+| D1 Inflação | data drift | `BILL_AMT*` +60%; `PAY_AMT*` −40% (renda real comprimida) |
+| D2 Desemprego | data drift | 30% dos clientes pioram 1–2 níveis em `PAY_0`/`PAY_2` |
+| D3 Novo perfil | data drift | 55% dos clientes 8–15 anos mais jovens, com limite 40% menor |
+| C1 Inadimplência silenciosa | **concept drift** | clientes com histórico limpo passam a inadimplir com +12% de probabilidade: perderam renda, mas o atraso ainda não aparece nas features |
+
+Os valores simulados respeitam os limites do contrato: **todo lote com drift passa no
+`schema.py`**. Drift não é dado inválido, e por isso o contrato sozinho não protege o
+modelo.
+
+```bash
+make simulate   # data/processed/production/production_<mes>.csv
+```
+
 ## Comandos
 
 ```bash
@@ -106,6 +131,7 @@ make reference       # congela data/reference/ (referência + holdout)
 make train           # treina o baseline e loga no MLflow/DagsHub
 make bad-batch       # gera o lote sujo da demo
 make demo-contract   # demonstra o contrato aceitando o limpo e bloqueando o sujo
+make simulate        # gera os lotes mensais de produção com drift
 make validate        # lint + testes + gates de branch/commit/tag
 make test            # pytest
 make lint            # ruff
@@ -115,6 +141,7 @@ Fluxo completo do zero:
 
 ```bash
 make install && make data-download && make reference && make train && make demo-contract
+make simulate
 ```
 
 ## Governança e LGPD
