@@ -223,4 +223,7 @@ mlruns/
 # Artefatos do pipeline (gerados por creditmon.*). reports/ NAO e ignorado de proposito:
 # o brief pede "relatorios HTML gerados comprovando o monitoramento" como evidencia no repo.
 /data/processed/
-/models/*.pkl
+/models/
+
+# Store local do MLflow (tracking oficial fica no DagsHub)
+mlflow.db
