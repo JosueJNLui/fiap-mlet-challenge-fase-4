@@ -2,7 +2,7 @@
 
 .PHONY: help install install-hooks uninstall-hooks validate validate-env validate-branch validate-commits validate-tags \
         lint test dvc-setup dvc-remote data-download data-push data-pull \
-        reference train bad-batch demo-contract simulate
+        reference train bad-batch demo-contract simulate drift
 
 UV      := uv --cache-dir /tmp/uv-cache
 DVC     := $(UV) run dvc
@@ -95,3 +95,6 @@ demo-contract: bad-batch ## Demonstra o contrato: lote limpo passa, lote sujo e 
 
 simulate: ## Gera os lotes mensais de producao com drift a partir do holdout.
 	PYTHONPATH=src $(UV) run python -m creditmon.simulation
+
+drift: ## Detecta drift (PSI, KS, Evidently) e grava os relatorios em reports/drift/.
+	PYTHONPATH=src $(UV) run python -W ignore -m creditmon.drift
