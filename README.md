@@ -37,6 +37,7 @@ src/creditmon/
   train.py     # baseline XGBoost + MLflow (log, registro e alias `production`)
   tracking.py  # configuração do MLflow no DagsHub
   simulation.py # lotes mensais de produção com data drift e concept drift
+  drift.py     # PSI, KS e relatórios do Evidently
 scripts/       # download do dataset, validação de lote, gates de Git
 tests/         # pytest
 ```
@@ -117,9 +118,37 @@ Os valores simulados respeitam os limites do contrato: **todo lote com drift pas
 `schema.py`**. Drift não é dado inválido, e por isso o contrato sozinho não protege o
 modelo.
 
+**Predições.** `src/creditmon/drift.py` escora cada lote de produção com o baseline e
+grava as predições (probabilidade de default e decisão por cliente) em
+`data/processed/production/predictions_<mes>.csv`. O relatório mostra, por mês, o score
+médio e a taxa de aprovação.
+
+**Detecção.** Cada lote escorado é comparado com a referência usando dois métodos
+independentes:
+
+- **PSI** (Population Stability Index): *quanto* a distribuição mudou (decis da
+  referência para contínuas, categorias para discretas);
+- **Kolmogorov-Smirnov**: *se* a mudança é estatisticamente significativa.
+
+Uma feature tem drift quando **PSI ≥ 0,25**, ou quando **PSI ≥ 0,10 e p-valor KS
+< 0,05**. Exigir as duas evidências evita o falso positivo do KS em lotes grandes.
+Também medimos o **prediction drift** (PSI do score) e a performance do modelo quando
+o rótulo da safra chega (ROC AUC, KS de separação, recall, taxa de aprovação).
+
+O **Evidently AI** roda em paralelo (`DataDriftPreset` com PSI + `ClassificationPreset`).
+O PSI dele é gravado ao lado do nosso, como validação cruzada da implementação.
+
 ```bash
 make simulate   # data/processed/production/production_<mes>.csv
+make drift      # predições + reports/drift/
 ```
+
+| Entregável | Arquivo |
+| :-- | :-- |
+| Relatório consolidado (variáveis degradadas por mês) | `reports/drift/drift_report.md` |
+| HTML do Evidently: mês de controle e último mês | `reports/drift/evidently_2026-01.html`, `evidently_2026-06.html` |
+| Tabela estatística por feature (PSI, PSI Evidently, KS, médias) | `reports/drift/feature_drift_<mes>.csv` |
+| Resumo para os próximos estágios | `reports/drift/drift_summary.json` |
 
 ## Comandos
 
@@ -132,6 +161,7 @@ make train           # treina o baseline e loga no MLflow/DagsHub
 make bad-batch       # gera o lote sujo da demo
 make demo-contract   # demonstra o contrato aceitando o limpo e bloqueando o sujo
 make simulate        # gera os lotes mensais de produção com drift
+make drift           # detecta drift e gera os relatórios (PSI, KS, Evidently)
 make validate        # lint + testes + gates de branch/commit/tag
 make test            # pytest
 make lint            # ruff
@@ -141,7 +171,7 @@ Fluxo completo do zero:
 
 ```bash
 make install && make data-download && make reference && make train && make demo-contract
-make simulate
+make simulate && make drift
 ```
 
 ## Governança e LGPD
@@ -181,6 +211,6 @@ make install-hooks     # ativa as validações no pre-commit/commit-msg/pre-push
 ## Roadmap
 
 - [x] **Etapa 1** — contrato de dados + baseline treinado.
-- [ ] **Etapa 2** — simulação e detecção de drift (Evidently AI, PSI/KS).
+- [x] **Etapa 2** — simulação e detecção de drift (Evidently AI, PSI/KS).
 - [ ] **Etapa 3** — observabilidade de pipeline e modelo (MLflow/DagsHub, métricas).
 - [ ] **Etapa 4** — governança (LGPD), análise causal e vídeo STAR.
