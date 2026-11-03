@@ -165,6 +165,7 @@ make drift           # detecta drift e gera os relatórios (PSI, KS, Evidently)
 make validate        # lint + testes + gates de branch/commit/tag
 make test            # pytest
 make lint            # ruff
+make check           # lint + test
 ```
 
 Fluxo completo do zero:
