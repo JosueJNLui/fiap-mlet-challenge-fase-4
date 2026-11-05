@@ -42,3 +42,8 @@
 {"ts": "2026-11-05T12:32:17.125+00:00", "run_id": "ec1119b1170c", "level": "INFO", "logger": "creditmon", "message": "relatórios em reports/drift/"}
 {"ts": "2026-11-05T12:32:17.125+00:00", "run_id": "ec1119b1170c", "level": "INFO", "logger": "creditmon", "message": "[drift] success em 5.16s", "event": "stage", "stage": "drift", "status": "success", "duration_s": 5.163, "rows_in": 6000, "rows_out": null, "batches_analyzed": 6, "error": null}
 {"ts": "2026-11-05T12:32:17.453+00:00", "run_id": "ec1119b1170c", "level": "INFO", "logger": "creditmon", "message": "dashboard: reports/monitoring/dashboard.html"}
+{"ts": "2026-11-05T12:51:19.561+00:00", "run_id": "39ea573f89e1", "level": "INFO", "logger": "creditmon", "message": "modelo salvo: models/baseline.pkl"}
+{"ts": "2026-11-05T12:51:19.561+00:00", "run_id": "39ea573f89e1", "level": "INFO", "logger": "creditmon", "message": "métricas salvas: models/baseline_metrics.json"}
+{"ts": "2026-11-05T12:51:41.320+00:00", "run_id": "39ea573f89e1", "level": "INFO", "logger": "creditmon", "message": "registro: credit_scoring_baseline v6 -> alias 'production'"}
+{"ts": "2026-11-05T12:51:41.850+00:00", "run_id": "39ea573f89e1", "level": "INFO", "logger": "creditmon", "message": "treino concluído"}
+{"ts": "2026-11-05T12:51:41.851+00:00", "run_id": "39ea573f89e1", "level": "INFO", "logger": "creditmon", "message": "[train] success em 26.86s", "event": "stage", "stage": "train", "status": "success", "duration_s": 26.863, "rows_in": 24000, "rows_out": null, "roc_auc": 0.7804, "error": null}

@@ -1,22 +1,22 @@
-# FIAP MLET — Tech Challenge Fase 4
+# FIAP MLET: Tech Challenge Fase 4
 
 Observabilidade contínua, detecção de drift, qualidade de dados e governança para um
 modelo de **credit scoring** em produção.
 
 O problema: uma fintech tem um modelo de risco de crédito rodando, a economia muda e o
 modelo degrada **em silêncio**. Este repositório constrói a camada de sustentação e
-confiabilidade — contrato de dados, baseline rastreável, simulação/detecção de drift,
+confiabilidade: contrato de dados, baseline rastreável, simulação/detecção de drift,
 monitoramento e documentação de compliance (LGPD).
 
-- Dataset: [UCI — Default of Credit Card Clients](https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients) (30.000 clientes, 25 colunas, alvo binário `default payment next month`).
+- Dataset: [UCI: Default of Credit Card Clients](https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients) (30.000 clientes, 25 colunas, alvo binário `default payment next month`).
 - Tracking + storage: [DagsHub](https://dagshub.com/JosueJNLui/fiap-mlet-challenge-fase-4) (MLflow + DVC).
 
 ## Sumário
 
 - [Arquitetura](#arquitetura)
 - [Setup](#setup)
-- [Etapa 1 — Contrato de dados e baseline](#etapa-1--contrato-de-dados-e-baseline)
-- [Etapa 2 — Simulação e detecção de drift](#etapa-2--simulação-e-detecção-de-drift)
+- [Etapa 1: Contrato de dados e baseline](#etapa-1-contrato-de-dados-e-baseline)
+- [Etapa 2: Simulação e detecção de drift](#etapa-2-simulação-e-detecção-de-drift)
 - [Análise causal da degradação](#análise-causal-da-degradação)
 - [Comandos](#comandos)
 - [Governança e LGPD](#governança-e-lgpd)
@@ -30,10 +30,10 @@ data/
   reference/   # referência congelada (24k) + holdout limpo (6k), via DVC
   bad_batch/   # lote sujo gerado sob demanda para a demo do contrato
 models/        # baseline.pkl + baseline_metrics.json (derivados, fora do Git)
-reports/       # evidências (HTML de drift, etc.) — versionadas de propósito
+reports/       # evidências (HTML de drift, etc.), versionadas de propósito
 src/creditmon/
-  config.py    # Settings (Pydantic) — paths, seed e credenciais
-  schema.py    # contrato de dados (Pandera) — bloqueia a ingestão
+  config.py    # Settings (Pydantic): paths, seed e credenciais
+  schema.py    # contrato de dados (Pandera): bloqueia a ingestão
   data.py      # carga, validação e congelamento de referência/holdout
   train.py     # baseline XGBoost + MLflow (log, registro e alias `production`)
   tracking.py  # configuração do MLflow no DagsHub
@@ -46,7 +46,7 @@ tests/         # pytest
 Separação central: **referência** (usada no treino) vs. **produção** (onde o drift
 ocorre, na Etapa 2). O contrato responde "este dado é válido?"; a detecção de drift
 responde "esta distribuição mudou?". Dado de produção pode ser válido e ainda assim
-sofrer drift — por isso o contrato é intencionalmente generoso nos limites e rígido
+sofrer drift; por isso o contrato é intencionalmente generoso nos limites e rígido
 apenas no que é impossível.
 
 ## Setup
@@ -68,7 +68,7 @@ DAGSHUB_USER=seu-usuario
 DAGSHUB_TOKEN=seu-token
 ```
 
-## Etapa 1 — Contrato de dados e baseline
+## Etapa 1: Contrato de dados e baseline
 
 **Modelo baseline.** XGBoost (`n_estimators=200`, `max_depth=4`, `learning_rate=0.1`,
 `scale_pos_weight` corrigindo o desbalanceamento ~78/22), treinado na referência e
@@ -100,7 +100,7 @@ idade de menor, domínio inválido, alvo inválido, `ID` duplicado) e
 make demo-contract
 ```
 
-## Etapa 2 — Simulação e detecção de drift
+## Etapa 2: Simulação e detecção de drift
 
 **Dataset de produção.** `src/creditmon/simulation.py` parte do **holdout** congelado
 na Etapa 1 (dados que o modelo nunca viu) e o fatia em 6 lotes mensais
@@ -137,7 +137,19 @@ Também medimos o **prediction drift** (PSI do score) e a performance do modelo 
 o rótulo da safra chega (ROC AUC, KS de separação, recall, taxa de aprovação).
 
 O **Evidently AI** roda em paralelo (`DataDriftPreset` com PSI + `ClassificationPreset`).
-O PSI dele é gravado ao lado do nosso, como validação cruzada da implementação.
+O PSI dele é gravado ao lado do nosso como segunda opinião; **a decisão de drift usa o
+nosso**. Os dois coincidem nas features discretas (`PAY_*`, `EDUCATION`) e divergem nas
+contínuas de cauda longa por causa do binning:
+
+| | Nosso PSI | PSI do Evidently |
+| :-- | :-- | :-- |
+| Bins de contínuas | decis da referência (10 faixas com 10% dos clientes cada) | largura igual, regra de Sturges sobre referência + lote (16 faixas) |
+| `PAY_AMT1` em jun | 0,287 (crítico) | 0,015: 98,7% da referência cai no 1º bin, a queda dos pagamentos some |
+| `BILL_AMT1` em jun | 0,101 | 0,240: a cauda que cresce atravessa bins largos e quase vazios na referência |
+
+Decis da referência são a prática de mercado em risco de crédito: cada faixa de clientes
+pesa igual, e o resultado não depende de outliers do lote. O KS, que não usa bins,
+confirma a mudança em `PAY_AMT1` (p-valor ≈ 10⁻³⁶).
 
 ```bash
 make simulate   # data/processed/production/production_<mes>.csv
@@ -253,6 +265,11 @@ make install && make data-download && make reference && make train && make demo-
 make simulate && make fairness && make drift && make causal
 ```
 
+Os testes que dependem do dataset (contrato sobre os dados reais e treino) são **pulados**,
+com o motivo, quando `data/raw` não existe; rode `make data-download` ou `make data-pull`
+antes para a suíte completa. O CI (`.github/workflows/ci.yml`) roda `make lint` e
+`make test` sem baixar dados, além dos gates de branch, commit e tag.
+
 ## Governança e LGPD
 
 Plano de proteção de dados da Etapa 4. Cada item separa o que **este projeto faz** (dataset
@@ -282,8 +299,8 @@ O que sai do ambiente de dados é sempre **agregado**: `reports/` (PSI, KS, méd
 histogramas do Evidently, taxas por grupo), as runs do MLflow (parâmetros, métricas, modelo e os
 mesmos relatórios) e `reports/monitoring/pipeline_runs.jsonl` (status, duração e volume por etapa,
 sem nenhuma linha de cliente). Nenhum desses artefatos contém `ID`. Única exceção a registro
-individual: o modelo registrado no MLflow guarda 10 linhas do holdout (sem `ID`) como
-`input_example` da assinatura; com dados reais, esse exemplo seria sintético.
+individual: o modelo é registrado no MLflow só com a *signature* (nomes e tipos das
+colunas), sem `input_example`, que gravaria linhas reais de clientes.
 
 ### Tratamento de PII
 
@@ -295,7 +312,7 @@ como pessoal por padrão (*privacy by default*):
 
 - `ID` fica fora das features (`train.model_features()`) e de qualquer relatório; o Evidently
   recebe só features, score, predição e alvo.
-- Relatórios, logs e runs só carregam agregados (exceto o `input_example` citado acima); lotes de produção e predições ficam em
+- Relatórios, logs e runs só carregam agregados; lotes de produção e predições ficam em
   `data/processed/`, fora do Git e regeneráveis por `make simulate`/`make drift`.
 - O contrato Pandera tem **schema estrito**: uma coluna nova (ex.: CPF ou telefone vindo de
   outro sistema) bloqueia o lote em vez de entrar silenciosamente no pipeline.
@@ -457,9 +474,9 @@ diretamente o titular, a fintech o mantém por iniciativa própria.
 
 O repositório aplica gates automatizados (CI + hooks opcionais):
 
-- **Branches** — Conventional Branch 1.0.0: `feat/`, `fix/`, `chore/`, `release/…`.
-- **Commits** — Conventional Commits 1.0.0: `feat:`, `fix(scope):`, `docs:`, etc.
-- **Tags** — SemVer estrito `MAJOR.MINOR.PATCH`.
+- **Branches**: Conventional Branch 1.0.0: `feat/`, `fix/`, `chore/`, `release/…`.
+- **Commits**: Conventional Commits 1.0.0: `feat:`, `fix(scope):`, `docs:`, etc.
+- **Tags**: SemVer estrito `MAJOR.MINOR.PATCH`.
 
 ```bash
 make validate          # roda todos os gates
@@ -468,7 +485,7 @@ make install-hooks     # ativa as validações no pre-commit/commit-msg/pre-push
 
 ## Roadmap
 
-- [x] **Etapa 1** — contrato de dados + baseline treinado.
-- [x] **Etapa 2** — simulação e detecção de drift (Evidently AI, PSI/KS).
-- [ ] **Etapa 3** — observabilidade de pipeline e modelo (MLflow/DagsHub, métricas).
-- [ ] **Etapa 4** — governança (LGPD), análise causal e vídeo STAR.
+- [x] **Etapa 1**: contrato de dados + baseline treinado.
+- [x] **Etapa 2**: simulação e detecção de drift (Evidently AI, PSI/KS).
+- [ ] **Etapa 3**: observabilidade de pipeline e modelo (MLflow/DagsHub, métricas).
+- [ ] **Etapa 4**: governança (LGPD), análise causal e vídeo STAR.

@@ -130,12 +130,13 @@ def train_baseline(settings: Settings, *, track: bool = True) -> dict:
                 }
             )
             mlflow.log_dict(metrics, "metrics/metrics.json")
+            # Sem input_example: ele gravaria linhas reais de clientes no MLflow; a
+            # signature já documenta o schema de entrada.
             try:
                 mlflow.sklearn.log_model(
                     sk_model=model,
                     name="model",
                     registered_model_name=DEFAULT_MODEL_NAME,
-                    input_example=X_test.head(10),
                     signature=mlflow.models.infer_signature(X_test, proba),
                     skops_trusted_types=[
                         "xgboost.sklearn.XGBClassifier",
@@ -147,7 +148,6 @@ def train_baseline(settings: Settings, *, track: bool = True) -> dict:
                     sk_model=model,
                     name="model",
                     registered_model_name=DEFAULT_MODEL_NAME,
-                    input_example=X_test.head(10),
                     signature=mlflow.models.infer_signature(X_test, proba),
                 )
             try:
