@@ -13,7 +13,14 @@ em lotes grandes, que acusa diferenças irrelevantes.
 
 O Evidently roda em paralelo (``DataDriftPreset`` com PSI + ``ClassificationPreset``) e
 gera os HTMLs em ``reports/drift/``. O PSI dele é gravado ao lado do nosso em
-``feature_drift_<mes>.csv`` como validação cruzada da implementação.
+``feature_drift_<mes>.csv`` como segunda opinião, mas **a decisão de drift usa o nosso**.
+Os dois coincidem nas features discretas (mesmas categorias) e divergem nas contínuas de
+cauda longa: o Evidently corta em bins de largura igual (regra de Sturges sobre referência
+e lote juntos), e nós, nos decis da referência. Em ``PAY_AMT1``, 98,7% da referência cai
+no primeiro dos 16 bins do Evidently, que fica cego à queda dos pagamentos (0,015 contra
+0,287 em jun); em ``BILL_AMT*`` a cauda que cresce atravessa bins largos e quase vazios na
+referência, e o Evidently pontua mais alto. Decis da referência são a prática de risco de
+crédito e dão o mesmo peso a cada faixa de clientes.
 
 Uso: ``make drift`` (depois de ``make train`` e ``make simulate``). Além dos relatórios,
 grava as predições do baseline para cada lote em
