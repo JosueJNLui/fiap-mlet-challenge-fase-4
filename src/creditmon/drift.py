@@ -102,7 +102,8 @@ def feature_drift(
     rows = []
     for col in features:
         p = psi(reference[col], current[col])
-        ks = ks_2samp(reference[col].dropna(), current[col].dropna())
+        # Assintótico: o exato falha com empates (features discretas); o lote real já passa de 10k.
+        ks = ks_2samp(reference[col].dropna(), current[col].dropna(), method="asymp")
         drift = p >= th.psi_critical or (p >= th.psi_warning and ks.pvalue < th.ks_pvalue)
         rows.append(
             {
