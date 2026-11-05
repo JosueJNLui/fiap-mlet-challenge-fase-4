@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 .PHONY: help install install-hooks uninstall-hooks validate validate-env validate-branch validate-commits validate-tags \
-        check lint test dvc-setup dvc-remote data-download data-push data-pull \
+        check lint test dashboard dvc-setup dvc-remote data-download data-push data-pull \
         reference train bad-batch demo-contract simulate drift
 
 UV      := uv --cache-dir /tmp/uv-cache
@@ -100,3 +100,8 @@ simulate: ## Gera os lotes mensais de producao com drift a partir do holdout.
 
 drift: ## Detecta drift (PSI, KS, Evidently) e grava os relatorios em reports/drift/.
 	PYTHONPATH=src $(UV) run python -W ignore -m creditmon.drift
+
+# ── Etapa 3: observabilidade ──────────────────────────────────────────────────
+
+dashboard: ## Gera reports/monitoring/dashboard.html a partir do log do pipeline e do drift.
+	MLFLOW_DISABLE_AGENT_HINT=1 PYTHONPATH=src $(UV) run python -W ignore -m creditmon.dashboard
