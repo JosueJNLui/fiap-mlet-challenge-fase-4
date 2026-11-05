@@ -1,0 +1,206 @@
+{
+  "ablation": [
+    {
+      "scenario": "sem choque",
+      "kind": "controle",
+      "drift_share": 0.0,
+      "n_drifted": 0,
+      "prediction_psi": 0.0023,
+      "roc_auc": 0.78,
+      "recall": 0.6253,
+      "approval_rate": 0.7035,
+      "default_rate": 0.2188
+    },
+    {
+      "scenario": "choque completo",
+      "kind": "controle",
+      "drift_share": 0.667,
+      "n_drifted": 14,
+      "prediction_psi": 0.0873,
+      "roc_auc": 0.6416,
+      "recall": 0.5673,
+      "approval_rate": 0.5877,
+      "default_rate": 0.3032
+    },
+    {
+      "scenario": "só D1 inflação",
+      "kind": "isolado",
+      "drift_share": 0.476,
+      "n_drifted": 10,
+      "prediction_psi": 0.0779,
+      "roc_auc": 0.7718,
+      "recall": 0.658,
+      "approval_rate": 0.6582,
+      "default_rate": 0.2188
+    },
+    {
+      "scenario": "só D2 desemprego",
+      "kind": "isolado",
+      "drift_share": 0.095,
+      "n_drifted": 2,
+      "prediction_psi": 0.071,
+      "roc_auc": 0.7419,
+      "recall": 0.6885,
+      "approval_rate": 0.5963,
+      "default_rate": 0.2188
+    },
+    {
+      "scenario": "só D3 novo perfil",
+      "kind": "isolado",
+      "drift_share": 0.095,
+      "n_drifted": 2,
+      "prediction_psi": 0.0213,
+      "roc_auc": 0.7618,
+      "recall": 0.5697,
+      "approval_rate": 0.7393,
+      "default_rate": 0.2188
+    },
+    {
+      "scenario": "só C1 inadimplência silenciosa",
+      "kind": "isolado",
+      "drift_share": 0.0,
+      "n_drifted": 0,
+      "prediction_psi": 0.0023,
+      "roc_auc": 0.6783,
+      "recall": 0.4827,
+      "approval_rate": 0.7035,
+      "default_rate": 0.3032
+    },
+    {
+      "scenario": "sem D1 inflação",
+      "kind": "remoção",
+      "drift_share": 0.19,
+      "n_drifted": 4,
+      "prediction_psi": 0.0453,
+      "roc_auc": 0.6482,
+      "recall": 0.5338,
+      "approval_rate": 0.6253,
+      "default_rate": 0.3032
+    },
+    {
+      "scenario": "sem D2 desemprego",
+      "kind": "remoção",
+      "drift_share": 0.571,
+      "n_drifted": 12,
+      "prediction_psi": 0.0128,
+      "roc_auc": 0.6611,
+      "recall": 0.4722,
+      "approval_rate": 0.7025,
+      "default_rate": 0.3032
+    },
+    {
+      "scenario": "sem D3 novo perfil",
+      "kind": "remoção",
+      "drift_share": 0.571,
+      "n_drifted": 12,
+      "prediction_psi": 0.194,
+      "roc_auc": 0.6514,
+      "recall": 0.6036,
+      "approval_rate": 0.5493,
+      "default_rate": 0.3032
+    },
+    {
+      "scenario": "sem C1 inadimplência silenciosa",
+      "kind": "remoção",
+      "drift_share": 0.667,
+      "n_drifted": 14,
+      "prediction_psi": 0.0873,
+      "roc_auc": 0.7169,
+      "recall": 0.6733,
+      "approval_rate": 0.5877,
+      "default_rate": 0.2188
+    }
+  ],
+  "dose_response": [
+    {
+      "month": "2026-01",
+      "severity": 0.0,
+      "drift_share": 0.0,
+      "n_drifted": 0,
+      "prediction_psi": 0.0011,
+      "roc_auc": 0.7804,
+      "recall": 0.6207,
+      "approval_rate": 0.7062,
+      "default_rate": 0.2188,
+      "batch_auc_ci95": [
+        0.7449,
+        0.8126
+      ]
+    },
+    {
+      "month": "2026-02",
+      "severity": 0.2,
+      "drift_share": 0.0,
+      "n_drifted": 0,
+      "prediction_psi": 0.0071,
+      "roc_auc": 0.7422,
+      "recall": 0.599,
+      "approval_rate": 0.6848,
+      "default_rate": 0.2348,
+      "batch_auc_ci95": [
+        0.7057,
+        0.7769
+      ]
+    },
+    {
+      "month": "2026-03",
+      "severity": 0.4,
+      "drift_share": 0.048,
+      "n_drifted": 1,
+      "prediction_psi": 0.0191,
+      "roc_auc": 0.7106,
+      "recall": 0.5787,
+      "approval_rate": 0.662,
+      "default_rate": 0.252,
+      "batch_auc_ci95": [
+        0.6746,
+        0.746
+      ]
+    },
+    {
+      "month": "2026-04",
+      "severity": 0.6,
+      "drift_share": 0.238,
+      "n_drifted": 5,
+      "prediction_psi": 0.0352,
+      "roc_auc": 0.6843,
+      "recall": 0.569,
+      "approval_rate": 0.639,
+      "default_rate": 0.268,
+      "batch_auc_ci95": [
+        0.6495,
+        0.7174
+      ]
+    },
+    {
+      "month": "2026-05",
+      "severity": 0.8,
+      "drift_share": 0.286,
+      "n_drifted": 6,
+      "prediction_psi": 0.06,
+      "roc_auc": 0.6605,
+      "recall": 0.5635,
+      "approval_rate": 0.6115,
+      "default_rate": 0.2848,
+      "batch_auc_ci95": [
+        0.6238,
+        0.693
+      ]
+    },
+    {
+      "month": "2026-06",
+      "severity": 1.0,
+      "drift_share": 0.667,
+      "n_drifted": 14,
+      "prediction_psi": 0.0873,
+      "roc_auc": 0.6416,
+      "recall": 0.5673,
+      "approval_rate": 0.5877,
+      "default_rate": 0.3032,
+      "batch_auc_ci95": [
+        0.6079,
+        0.6748
+      ]
+    }
+  ]
+}
