@@ -63,3 +63,20 @@ def test_report_shows_predictions_per_month(tmp_path) -> None:
     }  # fmt: skip
     md = drift.drift_markdown([record], {"roc_auc": 0.78})
     assert "Score médio" in md and "Aprovação" in md and "70.0%" in md
+
+
+def test_alerts_flag_each_rule_and_assign_blocked_batch_to_its_month() -> None:
+    record = {
+        "month": "2026-06",
+        "drift": {"critical_features": ["PAY_0", "LIMIT_BAL"], "dataset_drift": True},
+        "performance": {"roc_auc": 0.70},
+    }
+    assert drift.alerts(record, 0.78, ["2026-06-corrupted"]) == {
+        "psi_critical": 2,
+        "dataset_drift": 1,
+        "auc_drop": 1,
+        "contract_blocked": 1,
+    }
+    calm = {**record, "month": "2026-01", "performance": {"roc_auc": 0.77},
+            "drift": {"critical_features": [], "dataset_drift": False}}
+    assert sum(drift.alerts(calm, 0.78, ["2026-06-corrupted"]).values()) == 0

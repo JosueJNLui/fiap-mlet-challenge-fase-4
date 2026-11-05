@@ -173,22 +173,29 @@ def main() -> int:
     """Gera os lotes mensais de produção em data/processed/production/."""
     from creditmon.config import load_settings
     from creditmon.data import load_reference
+    from creditmon.tracking import log_stage, tracked_run
 
     setup_logging()
     settings = load_settings()
-    with stage("simulate") as st:
-        _, holdout = load_reference(settings)
-        batches = simulate_production(holdout, settings.seed)
-        paths = save_batches(settings, batches)
-        for path, (month, frame) in zip(paths, batches.items(), strict=True):
-            logger.info(
-                f"{path} ({len(frame):,} linhas, choque {severity(MONTHS.index(month)):.0%}, "
-                f"default {frame[TARGET].mean():.3f})"
+    with tracked_run(settings, "simulate"):
+        with stage("simulate") as st:
+            _, holdout = load_reference(settings)
+            batches = simulate_production(holdout, settings.seed)
+            paths = save_batches(settings, batches)
+            for path, (month, frame) in zip(paths, batches.items(), strict=True):
+                logger.info(
+                    f"{path} ({len(frame):,} linhas, choque {severity(MONTHS.index(month)):.0%}, "
+                    f"default {frame[TARGET].mean():.3f})"
+                )
+            corrupted = inject_contract_violations(batches[MONTHS[-1]])
+            (corrupted_path,) = save_batches(settings, {CORRUPTED_BATCH: corrupted})
+            logger.info(f"{corrupted_path} ({len(corrupted):,} linhas, 5 violações do contrato)")
+            st.update(
+                rows_in=len(holdout),
+                rows_out=sum(len(f) for f in batches.values()),
+                batches_written=len(paths) + 1,
             )
-        corrupted = inject_contract_violations(batches[MONTHS[-1]])
-        (corrupted_path,) = save_batches(settings, {CORRUPTED_BATCH: corrupted})
-        logger.info(f"{corrupted_path} ({len(corrupted):,} linhas, 5 violações do contrato)")
-        st.update(rows_in=len(holdout), rows_out=sum(len(f) for f in batches.values()))
+        log_stage(st)
     return 0
 
 

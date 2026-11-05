@@ -23,6 +23,11 @@ Cada lote passa pelo contrato de dados (``schema.py``) antes de ser escorado. Lo
 reprovado (ex.: ``2026-06-corrupted``) é registrado como ``blocked`` em
 ``reports/monitoring/pipeline_runs.jsonl``, não é escorado e entra em
 ``blocked_batches`` no ``drift_summary.json``.
+
+Alertas (``alerts()``, limiares em ``Thresholds``) por mês: features com PSI crítico,
+dataset drift, queda de ROC AUC vs. baseline e lote do mês bloqueado pelo contrato.
+Vão para o ``drift_summary.json`` e, com ``DAGSHUB_TOKEN``, para uma run ``drift-*`` no
+MLflow com uma métrica por mês (``step`` = índice do mês) e os relatórios como artefatos.
 """
 
 from __future__ import annotations
@@ -34,13 +39,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import mlflow
 import numpy as np
 import pandas as pd
 from scipy.stats import ks_2samp
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
 from creditmon.config import Settings
-from creditmon.observability import logger, setup_logging, stage
+from creditmon.observability import LOG_PATH, logger, setup_logging, stage
 from creditmon.schema import (
     CATEGORICAL_COLUMNS,
     ID_COLUMN,
@@ -48,6 +54,7 @@ from creditmon.schema import (
     DataContractError,
     validate_batch,
 )
+from creditmon.tracking import log_stage, tracked_run
 from creditmon.train import METRICS_PATH, MODEL_PATH
 
 EPS = 1e-4
@@ -144,6 +151,22 @@ def summarize(table: pd.DataFrame, th: Thresholds = THRESHOLDS) -> dict[str, Any
         "max_psi_feature": str(table.iloc[0]["feature"]),
         "max_psi": float(table.iloc[0]["psi"]),
         "dataset_drift": share >= th.drift_share_critical,
+    }
+
+
+def alerts(
+    record: dict[str, Any],
+    baseline_auc: float,
+    blocked: list[str],
+    th: Thresholds = THRESHOLDS,
+) -> dict[str, int]:
+    """Alertas do mês: contagem por tipo. Lote bloqueado conta no mês do nome (``2026-06-*``)."""
+    auc_drop = baseline_auc - record["performance"]["roc_auc"]
+    return {
+        "psi_critical": len(record["drift"]["critical_features"]),
+        "dataset_drift": int(record["drift"]["dataset_drift"]),
+        "auc_drop": int(auc_drop > th.auc_drop_critical),
+        "contract_blocked": sum(name.startswith(record["month"]) for name in blocked),
     }
 
 
@@ -395,6 +418,9 @@ def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
             f"{d['drifted_features'][:5]} | AUC {record['performance']['roc_auc']:.3f}"
         )
 
+    for record in records:
+        record["alerts"] = alerts(record, baseline["roc_auc"], blocked)
+        record["alerts_total"] = sum(record["alerts"].values())
     summary = {"baseline": baseline, "months": records, "blocked_batches": blocked}
     (out_dir / "drift_summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False)
@@ -404,6 +430,27 @@ def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
     return records
 
 
+def log_to_mlflow(records: list[dict[str, Any]], out_dir: Path) -> None:
+    """Métricas por mês (``step`` = índice do mês), tag de alerta e relatórios como artefatos."""
+    from creditmon.simulation import MONTHS
+
+    for record in records:
+        metrics = {
+            "drift_share": record["drift"]["drift_share"],
+            "n_drifted": record["drift"]["n_drifted"],
+            "prediction_psi": record["prediction_psi"],
+            **record["performance"],
+            **{f"psi_{k}": v for k, v in record["psi_by_feature"].items()},
+            **{f"alerts_{k}": v for k, v in record["alerts"].items()},
+            "alerts_total": record["alerts_total"],
+        }
+        mlflow.log_metrics(metrics, step=MONTHS.index(record["month"]))
+    alerted = [r["month"] for r in records if r["alerts_total"]]
+    mlflow.set_tags({"alert": str(bool(alerted)).lower(), "alert_months": ",".join(alerted)})
+    mlflow.log_artifacts(str(out_dir), "drift")
+    mlflow.log_artifact(str(LOG_PATH), "monitoring")
+
+
 def main() -> int:
     from creditmon.config import load_settings
 
@@ -411,9 +458,14 @@ def main() -> int:
     parser.add_argument("--all-html", action="store_true", help="salva o HTML de todos os meses")
     args = parser.parse_args()
     setup_logging()
-    with stage("drift") as st:
-        records = run(load_settings(), all_html=args.all_html)
-        st.update(rows_in=sum(r["rows"] for r in records), batches_analyzed=len(records))
+    settings = load_settings()
+    with tracked_run(settings, "drift") as tracking:
+        with stage("drift") as st:
+            records = run(settings, all_html=args.all_html)
+            st.update(rows_in=sum(r["rows"] for r in records), batches_analyzed=len(records))
+        if tracking:
+            log_to_mlflow(records, settings.paths.reports / "drift")
+            log_stage(st)
     return 0
 
 

@@ -19,8 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import pandas as pd
 
+from creditmon.config import load_settings  # noqa: E402
 from creditmon.observability import setup_logging, stage  # noqa: E402
 from creditmon.schema import DataContractError, validate_batch  # noqa: E402
+from creditmon.tracking import log_stage, tracked_run  # noqa: E402
 
 
 def main() -> int:
@@ -45,15 +47,17 @@ def main() -> int:
         print(f"ERRO: não foi possível ler {csv_path}: {error}", file=sys.stderr)
         return 2
 
-    try:
-        with stage("validate_batch", batch=csv_path.name, rows_in=len(frame)) as st:
-            st["rows_out"] = len(validate_batch(frame, name=csv_path.name))
-        log.info(f"✓ OK: {csv_path.name} passou no contrato ({len(frame):,} linhas)")
-        return 0
-    except DataContractError as error:
-        log.warning(f"✗ BLOQUEADO: {csv_path.name} NÃO passou no contrato\n{error.summary}")
-        return 1
-
+    with tracked_run(load_settings(), "validate_batch", batch=csv_path.name):
+        try:
+            with stage("validate_batch", batch=csv_path.name, rows_in=len(frame)) as st:
+                st["rows_out"] = len(validate_batch(frame, name=csv_path.name))
+            log.info(f"✓ OK: {csv_path.name} passou no contrato ({len(frame):,} linhas)")
+            return 0
+        except DataContractError as error:
+            log.warning(f"✗ BLOQUEADO: {csv_path.name} NÃO passou no contrato\n{error.summary}")
+            return 1
+        finally:
+            log_stage(st)
 
 if __name__ == "__main__":
     raise SystemExit(main())
