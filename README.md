@@ -255,29 +255,203 @@ make simulate && make fairness && make drift && make causal
 
 ## Governança e LGPD
 
-Plano de proteção de dados do projeto (detalhamento na Etapa 4):
+Plano de proteção de dados da Etapa 4. Cada item separa o que **este projeto faz** (dataset
+público e anonimizado) do que **a fintech faria com dados reais** de clientes. Os artigos citados
+são da Lei 13.709/2018 (LGPD), conferidos no
+[texto compilado do Planalto](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm).
 
-- **Dados e PII.** O dataset é público e **anonimizado pela UCI**: sem nome, CPF,
-  endereço ou qualquer identificador direto. O campo `ID` é um índice sintético do
-  arquivo, não uma identidade. Ainda assim é tratado como identificador (não é
-  feature do modelo) e nunca é exposto em relatórios.
-- **Base legal.** A decisão de crédito se apoia em *legítimo interesse* e *execução de
-  contrato* (LGPD, art. 7º, V e IX), com o titular ciente do processo de análise.
-- **Minimização.** Só entram no modelo 21 features; `ID`, o alvo, `SEX` e `MARRIAGE`
-  ficam fora das features. Nenhum dado sensível é inferido ou criado.
-- **Retenção.** Dados de referência e lotes de produção ficam versionados via DVC no
-  DagsHub e são reprocessáveis; logs de experimento no MLflow guardam métricas e
-  parâmetros, não o dado bruto.
-- **Vieses.** `make fairness` mede aprovação, recall e FPR por `SEX`, `EDUCATION`,
-  `MARRIAGE` e faixa de `AGE`, e compara variantes do baseline
-  (`reports/fairness/fairness_report.md`). Retirar `SEX` e `MARRIAGE` não custou ROC AUC
-  (0,7798 → 0,7804 no holdout) e elevou a razão de aprovação feminino/masculino em
-  jun/2026 de 0,906 para 0,989, então o baseline em produção não usa essas variáveis.
-  `make drift` acompanha a razão de aprovação por mês e alerta quando um atributo que
-  cumpria a regra dos 4/5 no holdout deixa de cumprir (faixa de `AGE` a partir de
-  mar/2026, efeito do novo perfil jovem).
-- **Direito do titular.** O contrato de dados e a separação referência/produção
-  permitem reconstruir e auditar o que influenciou cada decisão.
+**Papéis.** Controladora: a fintech, que decide a finalidade (conceder crédito). Operadores:
+provedores que guardam ou processam dados em nome dela (aqui, o DagsHub para DVC e MLflow).
+Encarregado (art. 41): indicado pela fintech; neste projeto, o próprio grupo responde pelo
+tratamento.
+
+### Inventário de dados
+
+| Coluna(s) | Categoria | Dado pessoal? | Uso no modelo | Onde fica |
+| :-- | :-- | :-- | :-- | :-- |
+| `ID` | identificador | pseudônimo (índice sintético da UCI) | **não** é feature; garante unicidade no contrato e liga a predição ao cliente | `data/` (DVC); `predictions_<mes>.csv` (local, fora do Git) |
+| `SEX`, `MARRIAGE` | demográfico, atributo protegido | sim (não é dado sensível do art. 5º, II) | **fora do modelo**; usados só na auditoria de equidade | `data/` (DVC); só agregados em `reports/fairness/` |
+| `EDUCATION`, `AGE` | demográfico, atributo protegido | sim | feature; auditada por grupo/faixa | `data/` (DVC); agregados em `reports/` |
+| `LIMIT_BAL` | financeiro (limite concedido) | sim | feature | `data/` (DVC) |
+| `PAY_0`, `PAY_2` a `PAY_6` | histórico de pagamento | sim | feature | `data/` (DVC) |
+| `BILL_AMT1` a `BILL_AMT6`, `PAY_AMT1` a `PAY_AMT6` | financeiro (fatura e pagamento) | sim | feature | `data/` (DVC) |
+| `default payment next month` | desfecho de crédito (rótulo) | sim | alvo do treino e da performance por safra | `data/` (DVC) |
+| `score`, `prediction` | dado derivado: perfil de crédito (art. 20) | sim | saída do modelo | `data/processed/` (local, fora do Git); só agregados nos relatórios |
+
+O que sai do ambiente de dados é sempre **agregado**: `reports/` (PSI, KS, médias,
+histogramas do Evidently, taxas por grupo), as runs do MLflow (parâmetros, métricas, modelo e os
+mesmos relatórios) e `reports/monitoring/pipeline_runs.jsonl` (status, duração e volume por etapa,
+sem nenhuma linha de cliente). Nenhum desses artefatos contém `ID`. Única exceção a registro
+individual: o modelo registrado no MLflow guarda 10 linhas do holdout (sem `ID`) como
+`input_example` da assinatura; com dados reais, esse exemplo seria sintético.
+
+### Tratamento de PII
+
+**Neste projeto.** O dataset da UCI (clientes de cartão de Taiwan, 2005) é anonimizado na
+origem: sem nome, documento, contato ou endereço. Pelo art. 12, dado anonimizado não é dado pessoal,
+salvo se a anonimização puder ser revertida com esforços razoáveis. Como `AGE`, `SEX`,
+`EDUCATION`, `MARRIAGE` e `LIMIT_BAL` juntos são quase-identificadores, o projeto trata o dado
+como pessoal por padrão (*privacy by default*):
+
+- `ID` fica fora das features (`train.model_features()`) e de qualquer relatório; o Evidently
+  recebe só features, score, predição e alvo.
+- Relatórios, logs e runs só carregam agregados (exceto o `input_example` citado acima); lotes de produção e predições ficam em
+  `data/processed/`, fora do Git e regeneráveis por `make simulate`/`make drift`.
+- O contrato Pandera tem **schema estrito**: uma coluna nova (ex.: CPF ou telefone vindo de
+  outro sistema) bloqueia o lote em vez de entrar silenciosamente no pipeline.
+- `SEX` e `MARRIAGE` saíram do modelo (ver [Mitigação de vieses](#mitigação-de-vieses)).
+- O lote sujo da demo é gerado a partir da referência com valores inválidos, sem dado real novo.
+
+**Com dados reais (fintech).**
+
+- **Pseudonimização** (art. 13, §4º): o CPF vira um pseudônimo por HMAC-SHA-256 com chave
+  guardada num cofre de segredos separado; o ambiente de ciência de dados só vê o pseudônimo, e a
+  correspondência com o titular fica no sistema transacional, com acesso restrito.
+- **Coleta mínima:** nome, contato e endereço não entram no pipeline de modelagem; dados sensíveis
+  do art. 5º, II (origem racial, saúde, religião, biometria etc.) não são coletados.
+- **Atributos protegidos** (`SEX`, `MARRIAGE`) ficam numa base de auditoria de acesso restrito,
+  usada só para medir equidade, nunca como feature.
+
+### Base legal
+
+- **Principal: proteção do crédito (art. 7º, X).** A análise de risco para conceder e manter
+  crédito é a finalidade típica dessa hipótese, que é a mais específica para o caso e não exige o
+  teste de balanceamento do legítimo interesse.
+- **Complementar: execução de contrato e procedimentos preliminares a pedido do titular
+  (art. 7º, V)**, para os dados que o próprio cliente informa na proposta e para a gestão do
+  contrato ativo.
+- **Monitoramento e auditoria** (drift, performance, equidade) fazem parte da mesma finalidade:
+  garantir que a decisão de crédito continue correta e não discriminatória (art. 6º, V e IX). Não
+  há reuso para outra finalidade, então não é preciso nova base.
+- **Por que não consentimento (art. 7º, I).** O consentimento precisa ser livre e pode ser
+  revogado a qualquer momento (art. 8º, §5º). A fintech não pode parar de avaliar o risco de um
+  contrato ativo porque o titular revogou, e condicionar o crédito ao "aceite" tornaria o
+  consentimento pouco livre. Usar o consentimento como base criaria uma base frágil para um
+  tratamento que é necessário.
+- **Por que não legítimo interesse (art. 7º, IX) como principal.** Ele cede quando prevalecem
+  direitos do titular e exige avaliação caso a caso; o inciso X já cobre a finalidade.
+
+**Princípios do art. 6º ligados a decisões do projeto.**
+
+| Princípio | Decisão concreta |
+| :-- | :-- |
+| Finalidade (I) e adequação (II) | dados usados só para risco de crédito e para monitorar o próprio modelo |
+| Necessidade (III) | `ID` fora das features; `SEX` e `MARRIAGE` removidos sem perda de ROC AUC; schema estrito barra colunas não previstas |
+| Qualidade dos dados (V) | contrato Pandera bloqueia lote inválido antes da predição (`make demo-contract`) |
+| Transparência (VI) | features, critérios e limiares documentados neste README; ver revisão de decisões abaixo |
+| Segurança (VII) | credenciais fora do Git, acesso por token pessoal (ver [Segurança e acesso](#segurança-e-acesso)) |
+| Prevenção (VIII) | monitor de drift e performance com alertas antes de a degradação virar prejuízo ao titular |
+| Não discriminação (IX) | auditoria de equidade e alerta mensal pela regra dos 4/5 |
+| Responsabilização e prestação de contas (X) | runs do MLflow, versões de dados no DVC, registro do modelo com alias `production` e log de execução formam a trilha de auditoria (também atende ao registro das operações do art. 37) |
+
+### Revisão de decisões automatizadas (art. 20)
+
+O titular pode pedir revisão de decisões "tomadas unicamente com base em tratamento automatizado",
+incluídas as que definem seu perfil de crédito, e tem direito a informações claras sobre os
+critérios e procedimentos usados, observado o segredo comercial (§1º).
+
+- **Rastreabilidade (implementado).** A versão do modelo em produção (registro
+  `credit_scoring_baseline`, alias `production`), a run de treino e o hash DVC dos dados de
+  referência permitem reconstruir o modelo e os dados que decidiram em cada mês.
+- **Critérios gerais (implementado).** As 21 features, os hiperparâmetros e os limiares de
+  alerta estão documentados e nas runs de treino; a importância global vem do próprio modelo
+  registrado (`feature_importances_` do XGBoost).
+- **Explicação por decisão (proposto, não implementado).** Para cada recusa, as contribuições por
+  cliente do próprio XGBoost (TreeSHAP, `pred_contribs=True`) gerariam os principais motivos em
+  linguagem simples ("atrasos recentes na fatura", "limite comprometido"), sem expor os pesos do
+  modelo (segredo comercial). Se a fintech negar informações por segredo, a ANPD pode auditar
+  aspectos discriminatórios (§2º).
+- **Revisão humana (processo).** A recusa contestada vai para um analista de crédito com acesso ao
+  score, aos motivos e à política vigente; o resultado e a justificativa ficam registrados. Uma
+  correção de dado pedida pelo titular (art. 18, III) gera nova avaliação.
+
+### Plano de retenção
+
+Os prazos da coluna "Fintech" são a política proposta para dados reais, ancorada em obrigações
+legais (art. 16, I). Ao fim do prazo, o dado individual é **eliminado** ou **anonimizado** para
+uso exclusivo da controladora (art. 16, IV).
+
+| Dado | Onde | Neste projeto | Fintech (dados reais) | Ao fim do prazo |
+| :-- | :-- | :-- | :-- | :-- |
+| Base de treino (referência + holdout) | DVC (DagsHub) | enquanto durar a avaliação acadêmica | enquanto o modelo treinado com ela estiver em uso, mais 5 anos para auditar decisões passadas | anonimizar (remover `ID`, `AGE` em faixas) para estudo interno, ou eliminar |
+| Lotes de produção (features do cliente) | `data/processed/` | local, fora do Git, regenerável | 5 anos após o encerramento da relação (Lei 9.613/1998, art. 10, §2º) | eliminar |
+| Predições (score e decisão) | `data/processed/` | local, fora do Git, regenerável | 5 anos após a decisão, como evidência para revisão (art. 20) e defesa do titular | eliminar |
+| Rótulo de inadimplência | DVC | junto da base de treino | uso em bureau limitado a 5 anos para informação negativa (CDC, art. 43, §1º) e 15 anos para cadastro positivo (Lei 12.414/2011, art. 14) | eliminar ou anonimizar |
+| Log de execução do pipeline | `reports/monitoring/` | versionado (sem dado de cliente) | 12 meses detalhado (janela de comparação sazonal) | resumir em métricas agregadas |
+| Runs do MLflow e modelos registrados | DagsHub | mantidos | enquanto o modelo estiver ativo, mais 5 anos (prestação de contas) | arquivar só métricas e relatórios agregados |
+| Relatórios agregados | `reports/` | versionados | mantidos (não contêm dado individual) | não se aplica |
+
+**Pedido de eliminação.** O direito de eliminação do art. 18, VI vale para dados tratados com
+consentimento; com base no art. 7º, X, a fintech pode conservar o que a lei obriga (art. 16, I) e
+elimina ou anonimiza o resto. Eliminar um cliente da base de treino não muda um modelo já treinado
+(ele não guarda linhas), mas o dado sai do próximo retreino.
+
+### Segurança e acesso
+
+**Neste projeto.**
+
+- `.env` está no `.gitignore`; `.env.example` não tem segredo; `make validate-env` confere se o
+  token existe antes de rodar o pipeline.
+- DVC e MLflow falam com o DagsHub por HTTPS, autenticados com token pessoal de cada membro do
+  grupo; sem token, as etapas de monitoramento geram os relatórios locais e não registram nada no
+  remoto.
+- O dado é público, então o risco de exposição aqui é baixo; os controles abaixo valem para a
+  fintech.
+
+**Fintech (dados reais).**
+
+| Papel | Acesso |
+| :-- | :-- |
+| Ciência de dados / MLOps | dados pseudonimizados, runs e registro de modelos; sem chave de pseudonimização |
+| Auditoria de equidade | base de atributos protegidos, só leitura e só agregados como saída |
+| Analista de crédito (revisão do art. 20) | dados identificados do caso em análise, com registro de acesso |
+| Segurança da informação | chave do HMAC e cofre de segredos |
+
+Complementam o quadro: menor privilégio, criptografia em trânsito e em repouso, rotação de tokens
+ao sair um membro e a cada 90 dias, registro de acessos (art. 46) e comunicação de incidente à ANPD
+e aos titulares quando houver risco ou dano relevante (art. 48).
+
+### Mitigação de vieses
+
+`SEX` e `MARRIAGE` não são dados sensíveis pelo art. 5º, II, mas negar crédito por sexo ou estado
+civil fere o princípio da não discriminação (art. 6º, IX). `make fairness` mede aprovação, recall,
+FPR e inadimplência real por `SEX`, `EDUCATION`, `MARRIAGE` e faixa de `AGE`, e calcula a razão de
+aprovação entre grupos com n ≥ 30 (regra dos 4/5: abaixo de 0,8 indica impacto desproporcional).
+Resultados em `reports/fairness/fairness_report.md`.
+
+- **Decisão: o baseline em produção não usa `SEX` nem `MARRIAGE`.** Retirá-las não custou ROC AUC
+  (0,7798 → 0,7804 no holdout) e elevou a razão de aprovação feminino/masculino em jun/2026 de
+  0,906 para 0,989. `EDUCATION` ficou: tirá-la reduz a AUC de jun (0,640 → 0,637) com ganho
+  pequeno de equidade.
+- **Disparidades conhecidas no holdout.** `EDUCATION` (0,62) e `MARRIAGE` (0,79) já ficam abaixo de
+  0,8. Em `EDUCATION` a razão vem do grupo "outros" (n = 94, aprovação 100%, inadimplência 5%), ou
+  seja, acompanha o risco real; mas o FPR (bons pagadores recusados) também difere: 26,9% no ensino
+  médio contra 17,6% na pós-graduação. Fica documentado como disparidade a acompanhar, não como
+  alerta.
+- **Remover a variável não remove o viés.** A faixa de `AGE` cumpre a regra no holdout (0,86) e
+  cai para 0,71 a 0,79 de mar a jun/2026: o novo público jovem com limite menor (drift D3, ver
+  [Análise causal](#análise-causal-da-degradação)) cria disparidade por idade sem nenhuma variável
+  sensível no modelo.
+- **Monitoramento contínuo.** `make drift` calcula a razão por atributo em cada mês e dispara o
+  alerta `fairness` quando um atributo que cumpria a regra no holdout deixa de cumprir; o alerta
+  aparece no dashboard e no MLflow.
+- **Limitação.** Os lotes mensais têm 1.000 clientes, então as razões de `EDUCATION` e `MARRIAGE`
+  oscilam por amostra; um alerta isolado pede confirmação no mês seguinte antes de mudar a política.
+
+### Relatório de impacto (RIPD) resumido
+
+A ANPD pode exigir o relatório de impacto (art. 38); como a decisão automatizada de crédito afeta
+diretamente o titular, a fintech o mantém por iniciativa própria.
+
+| Risco | Probabilidade | Impacto | Mitigação | Risco residual |
+| :-- | :-- | :-- | :-- | :-- |
+| Decisão errada por degradação silenciosa (concept drift) | alta: C1 explica 74% da queda de AUC com drift share 0% | alto: crédito negado a bom pagador ou concedido a quem não paga | ROC AUC por safra, alerta `auc_drop`, retreino com safra recente | médio: o rótulo demora a amadurecer |
+| Discriminação indireta por proxy (idade) | média: observada de mar a jun/2026 | alto | auditoria por grupo, alerta `fairness` mensal, revisão da política para o público novo | médio |
+| Decisão sobre dado inválido | média | médio | contrato Pandera bloqueia o lote antes da predição | baixo |
+| Reidentificação por quase-identificadores | baixa: dado anonimizado na origem, sem chave externa | alto | só agregados saem do ambiente de dados; `ID` fora; schema estrito | baixo |
+| Vazamento de credencial (token DagsHub) | média | médio: acesso a dados e ao registro de modelos | `.env` fora do Git, token pessoal, rotação | baixo |
+| Retenção além do necessário | média | médio | tabela de retenção; dados de produção fora do Git e regeneráveis | baixo |
+| Falta de explicação ao titular (art. 20) | média | alto | rastreabilidade por versão de modelo e dados; explicação por decisão proposta | médio: explicação por cliente não implementada |
 
 ## Convenções de Git
 
