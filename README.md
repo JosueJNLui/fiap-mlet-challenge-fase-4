@@ -1,87 +1,111 @@
-# FIAP MLET: Tech Challenge Fase 4
+# Monitoramento de Credit Scoring: drift, contratos de dados e governança
 
-Observabilidade contínua, detecção de drift, qualidade de dados e governança para um
-modelo de **credit scoring** em produção.
+Projeto do Tech Challenge Fase 4 (FIAP MLET). Uma fintech tem um modelo de risco de crédito em
+produção; a economia muda (inflação, desemprego, novos perfis de clientes) e o modelo degrada **em
+silêncio**. Este repositório constrói a camada de sustentação e confiabilidade em volta de um
+baseline XGBoost: contrato de dados que bloqueia lote inválido, simulação de seis meses de produção
+com data drift e concept drift, detecção estatística (PSI, KS e Evidently AI), observabilidade do
+pipeline (logs estruturados, MLflow e dashboard), análise causal da degradação e plano de proteção
+de dados (LGPD).
 
-O problema: uma fintech tem um modelo de risco de crédito rodando, a economia muda e o
-modelo degrada **em silêncio**. Este repositório constrói a camada de sustentação e
-confiabilidade: contrato de dados, baseline rastreável, simulação/detecção de drift,
-monitoramento e documentação de compliance (LGPD).
+**Achado central:** o concept drift simulado responde por 74% da queda de ROC AUC (0,780 para 0,640
+em jun/2026) com drift share 0%. Um monitor só de distribuição não vê a degradação; o alerta de
+performance por safra vê.
 
-- Dataset: [UCI: Default of Credit Card Clients](https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients) (30.000 clientes, 25 colunas, alvo binário `default payment next month`).
-- Tracking + storage: [DagsHub](https://dagshub.com/JosueJNLui/fiap-mlet-challenge-fase-4) (MLflow + DVC).
+```mermaid
+flowchart LR
+    subgraph dados["Dados (DVC no DagsHub)"]
+        RAW["data/raw<br/>UCI: 30.000 clientes"]
+        REF["data/reference<br/>referência 24k + holdout 6k"]
+    end
+    subgraph modelo["Modelo"]
+        TRAIN["train.py<br/>XGBoost, 21 features"]
+    end
+    subgraph producao["Produção simulada"]
+        SIM["simulation.py<br/>6 lotes mensais + lote corrompido"]
+        CONTRACT{"schema.py<br/>contrato Pandera"}
+        DRIFT["drift.py<br/>PSI, KS, Evidently, alertas"]
+    end
+    subgraph obs["Observabilidade"]
+        LOG["pipeline_runs.jsonl"]
+        DASH["dashboard.html"]
+        MLF["MLflow no DagsHub<br/>runs, métricas, registry"]
+    end
+    subgraph gov["Governança"]
+        FAIR["fairness.py"]
+        CAUSAL["causal.py"]
+    end
 
-## Sumário
-
-- [Critérios de avaliação](#critérios-de-avaliação)
-- [Arquitetura](#arquitetura)
-- [Setup](#setup)
-- [Etapa 1: Contrato de dados e baseline](#etapa-1-contrato-de-dados-e-baseline)
-- [Etapa 2: Simulação e detecção de drift](#etapa-2-simulação-e-detecção-de-drift)
-- [Etapa 3: Observabilidade](#etapa-3-observabilidade)
-- [Análise causal da degradação](#análise-causal-da-degradação)
-- [Comandos](#comandos)
-- [Governança e LGPD](#governança-e-lgpd)
-  - [Inventário de dados](#inventário-de-dados)
-  - [Tratamento de PII](#tratamento-de-pii)
-  - [Base legal](#base-legal)
-  - [Revisão de decisões automatizadas (art. 20)](#revisão-de-decisões-automatizadas-art-20)
-  - [Plano de retenção](#plano-de-retenção)
-  - [Segurança e acesso](#segurança-e-acesso)
-  - [Mitigação de vieses](#mitigação-de-vieses)
-  - [Relatório de impacto (RIPD) resumido](#relatório-de-impacto-ripd-resumido)
-- [Convenções de Git](#convenções-de-git)
-- [Roadmap](#roadmap)
-
-## Critérios de avaliação
-
-| Critério | Peso | Onde está | Evidência |
-| :-- | --: | :-- | :-- |
-| Validação de dados | 25% | [Etapa 1](#etapa-1-contrato-de-dados-e-baseline) | `src/creditmon/schema.py`, `make demo-contract`, lote `2026-06-corrupted` bloqueado em `make drift` |
-| Detecção de drift | 25% | [Etapa 2](#etapa-2-simulação-e-detecção-de-drift) | `reports/drift/drift_report.md`, `reports/drift/evidently_2026-06.html` |
-| Observabilidade e logs | 20% | [Etapa 3](#etapa-3-observabilidade) | `reports/monitoring/dashboard.html`, `reports/monitoring/pipeline_runs.jsonl`, runs no MLflow (DagsHub) |
-| Governança (LGPD) | 15% | [Governança e LGPD](#governança-e-lgpd), [Análise causal](#análise-causal-da-degradação) | `reports/fairness/fairness_report.md`, `reports/causal/causal_report.md` |
-| Vídeo STAR | 15% | [Roadmap](#roadmap) | link a publicar |
-
-## Arquitetura
-
-```text
-.github/workflows/  # ci.yml (lint + testes) e validate-conventions.yml (branch, commit, tag)
-data/
-  raw/              # dataset cru (UCI) versionado via DVC
-  reference/        # referência congelada (24k) + holdout limpo (6k), via DVC
-  bad_batch/        # lote sujo gerado sob demanda para a demo do contrato
-  processed/        # lotes de produção simulados e predições (locais, fora do Git)
-models/             # baseline.pkl + baseline_metrics.json (derivados, fora do Git)
-reports/            # evidências versionadas de propósito (só agregados)
-  drift/            # relatório consolidado, HTMLs do Evidently, PSI/KS por feature e mês
-  monitoring/       # pipeline_runs.jsonl (log estruturado) + dashboard.html
-  fairness/         # auditoria de equidade por grupo
-  causal/           # ablação dos mecanismos de drift
-src/creditmon/
-  config.py         # Settings (Pydantic): paths, seed e credenciais
-  schema.py         # contrato de dados (Pandera): bloqueia a ingestão
-  data.py           # carga, validação e congelamento de referência/holdout
-  train.py          # baseline XGBoost + MLflow (log, registro e alias `production`)
-  tracking.py       # MLflow no DagsHub: runs por etapa, tags de pipeline
-  observability.py  # logs estruturados (JSONL) e métricas de execução por etapa
-  simulation.py     # lotes mensais de produção com data drift e concept drift
-  drift.py          # contrato na ingestão, PSI, KS, Evidently, alertas
-  fairness.py       # aprovação, recall e FPR por grupo; regra dos 4/5
-  causal.py         # ablação dos mecanismos de drift
-  dashboard.py      # dashboard HTML de monitoramento
-scripts/            # download do dataset, lote sujo, validação de lote, gates de Git
-tests/              # pytest
-docs/               # guia de contribuição e imagens do README
+    RAW --> CONTRACT --> REF --> TRAIN
+    REF --> SIM --> CONTRACT
+    CONTRACT -->|lote válido| DRIFT
+    CONTRACT -.->|lote inválido: blocked| LOG
+    TRAIN -->|modelo production| DRIFT
+    TRAIN --> MLF
+    DRIFT --> LOG --> DASH
+    DRIFT --> DASH
+    DRIFT --> MLF
+    TRAIN --> FAIR
+    SIM --> CAUSAL
 ```
 
-Separação central: **referência** (usada no treino) vs. **produção** (onde o drift
-ocorre, na Etapa 2). O contrato responde "este dado é válido?"; a detecção de drift
-responde "esta distribuição mudou?". Dado de produção pode ser válido e ainda assim
-sofrer drift; por isso o contrato é intencionalmente generoso nos limites e rígido
-apenas no que é impossível.
+---
 
-## Setup
+## Links
+
+| O quê | Onde |
+|---|---|
+| Vídeo STAR (até 5 min) | _a preencher_ |
+| MLflow (runs, métricas, Model Registry) | https://dagshub.com/JosueJNLui/fiap-mlet-challenge-fase-4.mlflow |
+| Repositório no DagsHub (DVC) | https://dagshub.com/JosueJNLui/fiap-mlet-challenge-fase-4 |
+| Dataset | [UCI: Default of Credit Card Clients](https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients) |
+| Dashboard de monitoramento | [`reports/monitoring/dashboard.html`](reports/monitoring/dashboard.html) (baixe e abra no navegador; funciona offline) |
+| Relatório de drift | [`reports/drift/drift_report.md`](reports/drift/drift_report.md), HTMLs do Evidently em [`reports/drift/`](reports/drift/) |
+| Relatórios de equidade e causal | [`reports/fairness/fairness_report.md`](reports/fairness/fairness_report.md), [`reports/causal/causal_report.md`](reports/causal/causal_report.md) |
+| Evidências visuais | [`docs/img/`](docs/img/): 2 prints do dashboard e 3 do MLflow |
+
+---
+
+## Mapeamento dos critérios de avaliação
+
+| Critério | Peso | Onde está |
+|---|---|---|
+| Validação de dados | 25% | [seção 3](#3-contrato-de-dados-e-baseline), `src/creditmon/schema.py`, `make demo-contract`, lote `2026-06-corrupted` bloqueado em `make drift` |
+| Detecção de drift | 25% | [seção 4](#4-simulação-e-detecção-de-drift), `reports/drift/drift_report.md`, `reports/drift/evidently_2026-06.html` |
+| Observabilidade e logs | 20% | [seção 5](#5-observabilidade), `reports/monitoring/dashboard.html`, `reports/monitoring/pipeline_runs.jsonl`, runs no MLflow ([seção 10](#10-mlflow--dagshub-model-registry)) |
+| Governança (LGPD) | 15% | [seção 7](#7-governança-e-lgpd) (privacidade, base legal, retenção, vieses), [seção 6](#6-análise-causal-da-degradação) (causalidade), `reports/fairness/` |
+| Vídeo STAR | 15% | [seção 11](#11-vídeo-star) |
+
+---
+
+## 1. Visão geral
+
+**Dataset:** [UCI Default of Credit Card Clients](https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients),
+30.000 clientes de cartão de crédito de Taiwan (2005), 25 colunas e alvo binário
+`default payment next month` (22% de inadimplência). Os dados crus e a referência congelada são
+versionados com DVC no DagsHub.
+
+**Modelo:** XGBoost treinado na **referência** (24.000 clientes) e avaliado no **holdout** (6.000),
+ROC AUC 0,780. O modelo é registrado como `credit_scoring_baseline` com o alias `production`.
+
+**Separação central:** **referência** (usada no treino) vs. **produção** (onde o drift ocorre). O
+contrato responde "este dado é válido?"; a detecção de drift responde "esta distribuição mudou?".
+Dado de produção pode ser válido e ainda assim sofrer drift; por isso o contrato é
+intencionalmente generoso nos limites e rígido apenas no que é impossível.
+
+| Etapa do enunciado | Implementação | Seção |
+|---|---|---|
+| 1. Validação de dados e contratos | Pandera (`schema.py`) na referência, no lote sujo e em cada lote de produção | [3](#3-contrato-de-dados-e-baseline) |
+| 2. Simulação e detecção de drift | 6 lotes mensais com 3 mecanismos de data drift e 1 de concept drift; PSI, KS e Evidently | [4](#4-simulação-e-detecção-de-drift) |
+| 3. Observabilidade | logs JSONL por etapa, runs no MLflow, dashboard HTML, 6 tipos de alerta | [5](#5-observabilidade) |
+| 4. Governança e causalidade | ablação causal, auditoria de equidade, plano LGPD | [6](#6-análise-causal-da-degradação), [7](#7-governança-e-lgpd) |
+
+**Stack:** Python 3.12/3.13 com uv, XGBoost, scikit-learn, Pandera, Evidently AI, MLflow e DVC no
+DagsHub, matplotlib (dashboard), pytest, ruff e GitHub Actions.
+
+---
+
+## 2. Como executar
 
 Pré-requisitos: [uv](https://docs.astral.sh/uv/) e Python 3.12/3.13.
 
@@ -100,16 +124,55 @@ DAGSHUB_USER=seu-usuario
 DAGSHUB_TOKEN=seu-token
 ```
 
-## Etapa 1: Contrato de dados e baseline
+Fluxo completo do zero (com token, cada etapa também vira uma run no MLflow):
 
-**Modelo baseline.** XGBoost (`n_estimators=200`, `max_depth=4`, `learning_rate=0.1`,
+```bash
+make install && make data-download && make reference && make train && make demo-contract
+make simulate && make fairness && make drift && make causal
+```
+
+Alvos disponíveis:
+
+```bash
+make help            # lista todos os alvos
+make install         # instala as dependências
+make data-download   # baixa o dataset da UCI e converte para CSV
+make reference       # congela data/reference/ (referência + holdout)
+make train           # treina o baseline e loga no MLflow/DagsHub
+make bad-batch       # gera o lote sujo da demo
+make demo-contract   # demonstra o contrato aceitando o limpo e bloqueando o sujo
+make simulate        # gera os lotes mensais de produção com drift
+make drift           # detecta drift e gera os relatórios (PSI, KS, Evidently)
+make fairness        # auditoria de equidade por grupo e comparação de variantes
+make causal          # ablação dos mecanismos de drift (análise causal)
+make dashboard       # regenera o dashboard (make drift já faz isso no fim)
+make validate        # lint + testes + gates de branch/commit/tag
+make test            # pytest
+make lint            # ruff
+make check           # lint + test
+```
+
+Os testes que dependem do dataset (contrato sobre os dados reais e treino) são **pulados**,
+com o motivo, quando `data/raw` não existe; rode `make data-download` ou `make data-pull`
+antes para a suíte completa. O CI (`.github/workflows/ci.yml`) roda `make lint` e
+`make test` sem baixar dados, além dos gates de branch, commit e tag.
+
+---
+
+## 3. Contrato de dados e baseline
+
+### Modelo baseline
+
+XGBoost (`n_estimators=200`, `max_depth=4`, `learning_rate=0.1`,
 `scale_pos_weight` corrigindo o desbalanceamento ~78/22), treinado na referência e
 avaliado no holdout (**ROC AUC 0,780**). Usa 21 features: `ID` fica de fora, e `SEX` e
 `MARRIAGE` também (ver [Mitigação de vieses](#mitigação-de-vieses)). Cada execução loga
 parâmetros e métricas no MLflow, registra o modelo como `credit_scoring_baseline` e promove a
 versão mais recente para o alias `production`.
 
-**Contrato de dados.** `src/creditmon/schema.py` (Pandera) bloqueia a ingestão antes do
+### Contrato de dados
+
+`src/creditmon/schema.py` (Pandera) bloqueia a ingestão antes do
 treino/predição. Regras rígidas:
 
 | Regra | Coluna(s) |
@@ -125,7 +188,9 @@ treino/predição. Regras rígidas:
 `BILL_AMT` pode ser negativo de propósito (saldo credor é um estado válido); o contrato
 não barra valores economicamente possíveis, apenas impossíveis.
 
-**Demonstração do bloqueio.** `scripts/create_bad_batch.py` injeta violações (nulo,
+### Demonstração do bloqueio
+
+`scripts/create_bad_batch.py` injeta violações (nulo,
 idade de menor, domínio inválido, alvo inválido, `ID` duplicado) e
 `scripts/validate_batch.py` rejeita o lote com exit code `1`:
 
@@ -136,11 +201,15 @@ make demo-contract
 O mesmo contrato protege a **ingestão de produção**: `make drift` valida cada lote antes de
 escorar. O lote `2026-06-corrupted` (cópia de jun/2026 com violações injetadas, gerado por
 `make simulate`) é bloqueado, não recebe predição e aparece como `blocked` no log e no dashboard
-([Etapa 3](#etapa-3-observabilidade)).
+([seção 5](#5-observabilidade)).
 
-## Etapa 2: Simulação e detecção de drift
+---
 
-**Dataset de produção.** `src/creditmon/simulation.py` parte do **holdout** congelado
+## 4. Simulação e detecção de drift
+
+### Dataset de produção
+
+`src/creditmon/simulation.py` parte do **holdout** congelado
 na Etapa 1 (dados que o modelo nunca viu) e o fatia em 6 lotes mensais
 (`2026-01` → `2026-06`, 1.000 clientes cada) com um choque econômico de intensidade
 crescente (0% → 100%). **Jan/2026 é o mês de controle, sem drift**, para provar que o
@@ -157,12 +226,16 @@ Os valores simulados respeitam os limites do contrato: **todo lote com drift pas
 `schema.py`**. Drift não é dado inválido, e por isso o contrato sozinho não protege o
 modelo.
 
-**Predições.** `src/creditmon/drift.py` escora cada lote de produção com o baseline e
+### Predições
+
+`src/creditmon/drift.py` escora cada lote de produção com o baseline e
 grava as predições (probabilidade de default e decisão por cliente) em
 `data/processed/production/predictions_<mes>.csv`. O relatório mostra, por mês, o score
 médio e a taxa de aprovação.
 
-**Detecção.** Cada lote escorado é comparado com a referência usando dois métodos
+### Detecção
+
+Cada lote escorado é comparado com a referência usando dois métodos
 independentes:
 
 - **PSI** (Population Stability Index): *quanto* a distribuição mudou (decis da
@@ -201,7 +274,9 @@ make drift      # predições + reports/drift/
 | Tabela estatística por feature (PSI, PSI Evidently, KS, médias) | `reports/drift/feature_drift_<mes>.csv` |
 | Resumo para os próximos estágios | `reports/drift/drift_summary.json` |
 
-**Resultado.** O mês de controle não gera alarme falso, e a degradação cresce com o choque:
+### Resultado
+
+O mês de controle não gera alarme falso, e a degradação cresce com o choque:
 
 | Mês | Drift share | Features críticas (PSI ≥ 0,25) | PSI do score | ROC AUC | Aprovação |
 | :-- | --: | :-- | --: | --: | --: |
@@ -215,9 +290,11 @@ make drift      # predições + reports/drift/
 Variáveis degradadas em jun/2026 (PSI): `PAY_2` 0,754, `AGE` 0,509, `PAY_AMT1` 0,287,
 `PAY_AMT2` 0,269, `PAY_0` 0,239, `PAY_AMT3` a `PAY_AMT6` (0,148 a 0,190), `LIMIT_BAL` 0,132 e
 `BILL_AMT1` 0,101. A queda de AUC de 0,780 para 0,640 é maior do que o drift das features
-explica; a [Análise causal](#análise-causal-da-degradação) mostra por quê.
+explica; a [seção 6](#6-análise-causal-da-degradação) mostra por quê.
 
-## Etapa 3: Observabilidade
+---
+
+## 5. Observabilidade
 
 Ferramentas: **MLflow no DagsHub** para rastrear runs, métricas e artefatos, mais um
 **dashboard HTML estático** gerado pelo próprio pipeline, que a banca abre sem credencial.
@@ -233,22 +310,26 @@ flowchart LR
     D -->|"métricas por mês"| M
 ```
 
-**Logs estruturados.** `src/creditmon/observability.py` usa só o `logging` da stdlib, com duas
+### Logs estruturados
+
+`src/creditmon/observability.py` usa só o `logging` da stdlib, com duas
 saídas: mensagem legível no terminal e um JSON por linha em
 `reports/monitoring/pipeline_runs.jsonl`. O context manager `stage(nome)` envolve cada etapa
 (`data_download`, `reference`, `validate_batch`, `train`, `simulate`, `fairness`, `causal`,
 `ingest_production` e `score_and_drift` por lote, `drift` no total) e grava:
 
 ```json
-{"ts": "2026-11-05T12:32:17.124+00:00", "run_id": "…", "level": "…", "event": "stage",
+{"ts": "2026-11-05T13:05:31.574+00:00", "run_id": "…", "level": "…", "event": "stage",
  "stage": "ingest_production", "batch": "2026-06-corrupted", "status": "blocked",
- "duration_s": 0.018, "rows_in": 1000, "rows_out": null, "failure_count": 8, "error": "…"}
+ "duration_s": 0.019, "rows_in": 1000, "rows_out": null, "failure_count": 8, "error": "…"}
 ```
 
 Lote rejeitado pelo contrato vira `blocked`, não `failed`: o pipeline funcionou, quem falhou foi o
 dado. Outra exceção vira `failed` e o processo sai com erro.
 
-**Rastreamento no MLflow.** Cada alvo do `make` abre uma run `<etapa>-<timestamp>` no
+### Rastreamento no MLflow
+
+Cada alvo do `make` abre uma run `<etapa>-<timestamp>` no
 experimento `credit-scoring-drift-fase-4`
 ([UI do MLflow no DagsHub](https://dagshub.com/JosueJNLui/fiap-mlet-challenge-fase-4.mlflow)), com a
 tag `pipeline_run_id` igual ao `run_id` do JSONL, o que liga log e run. Runs: `credit-baseline-*`
@@ -256,29 +337,45 @@ tag `pipeline_run_id` igual ao `run_id` do JSONL, o que liga log e run. Runs: `c
 `fairness-*`, `causal-*` e `drift-*`. A run `drift-*` loga as métricas de cada mês com
 `step` = índice do mês (gráfico de série temporal na UI), as tags `alert` e `alert_months` e, como
 artefatos, os relatórios de `reports/drift/`, o `pipeline_runs.jsonl` e o `dashboard.html`. Sem
-`DAGSHUB_TOKEN`, as etapas avisam no log, não abrem run e geram os relatórios locais normalmente.
+`DAGSHUB_TOKEN`, as etapas avisam no log, não abrem run e geram os relatórios locais normalmente
+(detalhes na [seção 10](#10-mlflow--dagshub-model-registry)).
 
-**Dashboard.** `make drift` regenera `reports/monitoring/dashboard.html` no fim (ou
+![Runs do experimento no MLflow (DagsHub)](docs/img/mlflow_runs.png)
+
+![Alertas por mês na run drift-*: cada step é um mês](docs/img/mlflow_alertas.png)
+
+![Relatório de drift como artefato da run drift-*](docs/img/mlflow_artefatos.png)
+
+### Dashboard
+
+`make drift` regenera `reports/monitoring/dashboard.html` no fim (ou
 `make dashboard` sozinho), a partir do JSONL e do `drift_summary.json`. É um arquivo único, com
 gráficos embutidos, que abre offline: KPIs, saúde do pipeline (último evento de cada etapa e lote),
 drift share, PSI do score e ROC AUC por mês com os limiares, alertas por tipo, decisão vs.
 inadimplência real, estado por mês, equidade por atributo e heatmap de PSI feature × mês.
 
-![Dashboard de monitoramento](docs/img/dashboard.png)
+![Dashboard: KPIs, saúde do pipeline e séries de drift e performance](docs/img/dashboard.png)
 
-**Alertas.** Calculados por mês em `drift.alerts()`, com os limiares em `drift.Thresholds`:
+![Dashboard: alertas por tipo, decisão vs. inadimplência, estado por mês e equidade](docs/img/dashboard_alertas.png)
+
+### Alertas
+
+Calculados por mês em `drift.alerts()`, com os limiares em `drift.Thresholds`:
 
 | Alerta | Regra | Ação esperada |
 | :-- | :-- | :-- |
 | `psi_critical` | uma contagem por feature com PSI ≥ 0,25 | investigar a origem da mudança da feature |
 | `dataset_drift` | drift share ≥ 30% | avaliar retreino com dados recentes |
 | `auc_drop` | ROC AUC da safra mais de 0,05 abaixo do holdout | retreinar; sinal decisivo contra concept drift |
+| `default_shift` | inadimplência real da safra a mais de 5 p.p. da do holdout (21,9%) | revisar o ponto de corte com o negócio; sinal de negócio que chega junto com o rótulo |
 | `contract_blocked` | lote do mês bloqueado pelo contrato | corrigir na origem e reprocessar o lote |
 | `fairness` | atributo com razão de aprovação ≥ 0,8 no holdout e < 0,8 no mês | revisar a política com o negócio |
 
-Resultado: 0 alertas em jan e fev, 2 em mar, 3 em abr, 4 em mai e 8 em jun (17 no período).
+Resultado: 0 alertas em jan e fev, 2 em mar, 3 em abr, 5 em mai e 9 em jun (19 no período).
+O mês fica **crítico** com `auc_drop`, `dataset_drift` ou `contract_blocked`, e em **atenção** com
+`psi_critical`, `fairness` ou `default_shift`.
 
-**Métricas de saúde.**
+### Métricas de saúde
 
 | Métrica | Origem | Limiar | Ação esperada |
 | :-- | :-- | :-- | :-- |
@@ -290,11 +387,13 @@ Resultado: 0 alertas em jan e fev, 2 em mar, 3 em abr, 4 em mai e 8 em jun (17 n
 | Features críticas | `drift_summary.json`, métricas `psi_<feature>` | PSI ≥ 0,25 (atenção a partir de 0,10) | alerta `psi_critical` |
 | PSI do score (prediction drift) | métrica `prediction_psi` | 0,10 moderado, 0,25 crítico | acompanhar junto da performance |
 | ROC AUC por safra | métrica `roc_auc` (quando o rótulo chega) | queda > 0,05 vs. 0,780 | alerta `auc_drop` |
-| Taxa de aprovação e inadimplência real | métricas `approval_rate`, `default_rate` | sem alerta automático; acompanhamento no gráfico do dashboard | revisar o ponto de corte com o negócio se a inadimplência real se afastar da aprovação |
+| Taxa de aprovação e inadimplência real | métricas `approval_rate`, `default_rate` | inadimplência real a mais de 5 p.p. do holdout | alerta `default_shift` |
 | Razão de aprovação entre grupos | métricas `fairness_<atributo>` | < 0,8 (regra dos 4/5) | alerta `fairness` |
 | Alertas por mês | métricas `alerts_<tipo>`, `alerts_total`; tag `alert` | ≥ 1 | ver a ação de cada alerta |
 
-## Análise causal da degradação
+---
+
+## 6. Análise causal da degradação
 
 Como o cenário de produção é simulado, a causa da queda do modelo pode ser medida por
 **intervenção**, não só inferida. `src/creditmon/causal.py` (`make causal`) roda uma
@@ -328,7 +427,7 @@ flowchart LR
 | Só D3 novo perfil | 10% | 0,021 | 0,762 | −0,018 | 7% |
 | Só C1 inadimplência silenciosa | **0%** | **0,002** | **0,678** | **−0,102** | **54%** |
 
-**Leitura.**
+### Leitura
 
 - **A causa principal da queda de AUC é o concept drift (C1), e ele é invisível para o
   monitor de data drift.** Sozinho, C1 responde por 74% da queda (−0,102 de −0,138) com
@@ -355,7 +454,7 @@ flowchart LR
 - O drift share de 67% aqui é maior que os 52% do lote de jun porque, com 6.000 clientes,
   o KS tem mais poder para confirmar mudanças moderadas.
 
-**Prescrição.**
+### Prescrição
 
 1. **Monitorar performance por safra, não só distribuição.** O PSI das features e do
    score não detecta C1. Quando o rótulo da safra amadurece, a queda de AUC vs. baseline
@@ -369,40 +468,9 @@ flowchart LR
 4. **Revisar a política com o negócio para o público novo (D3)**, que também cria
    disparidade de aprovação por idade (ver [Mitigação de vieses](#mitigação-de-vieses)).
 
-## Comandos
+---
 
-```bash
-make help            # lista todos os alvos
-make install         # instala as dependências
-make data-download   # baixa o dataset da UCI e converte para CSV
-make reference       # congela data/reference/ (referência + holdout)
-make train           # treina o baseline e loga no MLflow/DagsHub
-make bad-batch       # gera o lote sujo da demo
-make demo-contract   # demonstra o contrato aceitando o limpo e bloqueando o sujo
-make simulate        # gera os lotes mensais de produção com drift
-make drift           # detecta drift e gera os relatórios (PSI, KS, Evidently)
-make fairness        # auditoria de equidade por grupo e comparação de variantes
-make causal          # ablação dos mecanismos de drift (análise causal)
-make dashboard       # regenera o dashboard (make drift já faz isso no fim)
-make validate        # lint + testes + gates de branch/commit/tag
-make test            # pytest
-make lint            # ruff
-make check           # lint + test
-```
-
-Fluxo completo do zero:
-
-```bash
-make install && make data-download && make reference && make train && make demo-contract
-make simulate && make fairness && make drift && make causal
-```
-
-Os testes que dependem do dataset (contrato sobre os dados reais e treino) são **pulados**,
-com o motivo, quando `data/raw` não existe; rode `make data-download` ou `make data-pull`
-antes para a suíte completa. O CI (`.github/workflows/ci.yml`) roda `make lint` e
-`make test` sem baixar dados, além dos gates de branch, commit e tag.
-
-## Governança e LGPD
+## 7. Governança e LGPD
 
 Plano de proteção de dados da Etapa 4. Cada item separa o que **este projeto faz** (dataset
 público e anonimizado) do que **a fintech faria com dados reais** de clientes. Os artigos citados
@@ -579,7 +647,7 @@ Resultados em `reports/fairness/fairness_report.md`.
   alerta.
 - **Remover a variável não remove o viés.** A faixa de `AGE` cumpre a regra no holdout (0,86) e
   cai para 0,71 a 0,79 de mar a jun/2026: o novo público jovem com limite menor (drift D3, ver
-  [Análise causal](#análise-causal-da-degradação)) cria disparidade por idade sem nenhuma variável
+  [seção 6](#6-análise-causal-da-degradação)) cria disparidade por idade sem nenhuma variável
   sensível no modelo.
 - **Monitoramento contínuo.** `make drift` calcula a razão por atributo em cada mês e dispara o
   alerta `fairness` quando um atributo que cumpria a regra no holdout deixa de cumprir; o alerta
@@ -602,9 +670,16 @@ diretamente o titular, a fintech o mantém por iniciativa própria.
 | Retenção além do necessário | média | médio | tabela de retenção; dados de produção fora do Git e regeneráveis | baixo |
 | Falta de explicação ao titular (art. 20) | média | alto | rastreabilidade por versão de modelo e dados; explicação por decisão proposta | médio: explicação por cliente não implementada |
 
-## Convenções de Git
+---
 
-O repositório aplica gates automatizados (CI + hooks opcionais):
+## 8. CI/CD e convenções de Git
+
+| Workflow | Gatilho | O que faz |
+|---|---|---|
+| `.github/workflows/ci.yml` | PR em qualquer branch e push na `main` | `make check` (ruff + pytest), sem baixar dados |
+| `.github/workflows/validate-conventions.yml` | PR e push em qualquer branch, push de tag | valida nome da branch, mensagens de commit e tags |
+
+Gates aplicados no CI e, opcionalmente, nos hooks locais:
 
 - **Branches**: Conventional Branch 1.0.0: `feat/`, `fix/`, `chore/`, `release/…`.
 - **Commits**: Conventional Commits 1.0.0: `feat:`, `fix(scope):`, `docs:`, etc.
@@ -615,10 +690,101 @@ make validate          # roda todos os gates
 make install-hooks     # ativa as validações no pre-commit/commit-msg/pre-push
 ```
 
-## Roadmap
+---
 
-- [x] **Etapa 1**: contrato de dados + baseline treinado.
-- [x] **Etapa 2**: simulação e detecção de drift (Evidently AI, PSI/KS).
-- [x] **Etapa 3**: observabilidade de pipeline e modelo (logs estruturados, MLflow/DagsHub, dashboard, alertas).
-- [x] **Etapa 4**: governança (LGPD), mitigação de vieses e análise causal.
-- [ ] **Vídeo STAR** (≤ 5 min): link a publicar.
+## 9. Estrutura do repositório
+
+```
+.
+├── .github/workflows/
+│   ├── ci.yml                     lint + testes (make check)
+│   └── validate-conventions.yml   gates de branch, commit e tag
+├── .githooks/                     hooks opcionais (make install-hooks)
+├── data/
+│   ├── raw/                       dataset cru da UCI (DVC)
+│   ├── reference/                 referência congelada (24k) + holdout (6k) (DVC)
+│   ├── bad_batch/                 lote sujo da demo do contrato (gerado sob demanda)
+│   └── processed/production/      lotes simulados e predições (locais, fora do Git)
+├── docs/
+│   ├── CONTRIBUTING.md            guia de contribuição
+│   └── img/                       prints do dashboard e do MLflow
+├── models/                        baseline.pkl + baseline_metrics.json (derivados, fora do Git)
+├── reports/                       evidências versionadas de propósito (só agregados)
+│   ├── drift/                     relatório consolidado, HTMLs do Evidently, PSI/KS por mês
+│   ├── monitoring/                pipeline_runs.jsonl (log estruturado) + dashboard.html
+│   ├── fairness/                  auditoria de equidade por grupo
+│   └── causal/                    ablação dos mecanismos de drift
+├── scripts/                       download do dataset, lote sujo, validação de lote, gates de Git
+├── src/creditmon/
+│   ├── config.py                  Settings (Pydantic): paths, seed e credenciais
+│   ├── schema.py                  contrato de dados (Pandera)
+│   ├── data.py                    carga, validação e congelamento de referência/holdout
+│   ├── train.py                   baseline XGBoost + registro no MLflow
+│   ├── tracking.py                MLflow no DagsHub: runs por etapa, tags de pipeline
+│   ├── observability.py           logs estruturados (JSONL) e métricas por etapa
+│   ├── simulation.py              lotes mensais com data drift e concept drift
+│   ├── drift.py                   contrato na ingestão, PSI, KS, Evidently, alertas
+│   ├── fairness.py                aprovação, recall e FPR por grupo; regra dos 4/5
+│   ├── causal.py                  ablação dos mecanismos de drift
+│   └── dashboard.py               dashboard HTML de monitoramento
+├── tests/                         pytest
+├── Makefile                       todos os atalhos (make help)
+└── .env.example                   credenciais do DagsHub (sem segredo)
+```
+
+---
+
+## 10. MLflow & DagsHub Model Registry
+
+O **DagsHub** hospeda o remoto do DVC (dados) e o servidor **MLflow** (runs, métricas, artefatos e
+Model Registry) do experimento `credit-scoring-drift-fase-4`.
+
+### Como funciona
+
+- **Com credenciais** (`DAGSHUB_TOKEN` no `.env`): cada alvo do `make` abre uma run
+  `<etapa>-<timestamp>` com as tags `pipeline_stage` e `pipeline_run_id` (o `run_id` do
+  `pipeline_runs.jsonl`); o status do `stage()` vira a tag `status` e os campos numéricos viram
+  métricas. Exceção dentro da etapa fecha a run como `FAILED`.
+- **Sem credenciais** (CI, banca sem token): as etapas avisam no log que **não** registraram no
+  MLflow e seguem gerando os relatórios locais. Não há fallback silencioso para um `./mlruns`
+  local, que mascararia a ausência do DagsHub.
+
+| Run | Etapa | O que registra |
+|---|---|---|
+| `credit-baseline-*` | `make train` | parâmetros, métricas do holdout, features excluídas, modelo |
+| `simulate-*` | `make simulate` | volume e duração da geração dos lotes |
+| `validate_batch-*` | `make demo-contract` | status `success` ou `blocked`, nº de violações |
+| `fairness-*` | `make fairness` | razões de aprovação por variante, relatórios de equidade |
+| `drift-*` | `make drift` | métricas por mês (`step`), alertas, tag `alert`, relatórios e dashboard |
+| `causal-*` | `make causal` | relatórios da ablação |
+
+### Configuração
+
+```bash
+cp .env.example .env
+# Edite .env com DAGSHUB_USER e DAGSHUB_TOKEN
+make validate-env
+```
+
+### Modelo registrado
+
+- **Nome**: `credit_scoring_baseline`
+- **Flavor**: `mlflow.sklearn` (`XGBClassifier` pela API do scikit-learn), serializado com `skops`
+- **Signature**: nomes e tipos das 21 features; **sem `input_example`**, que gravaria linhas reais
+  de clientes no registro (ver [Inventário de dados](#inventário-de-dados))
+- **Alias**: `production` aponta para a versão mais recente a cada `make train` (hoje a v7)
+- **Histórico**: as versões 1 a 5 foram apagadas do registro, junto com os artefatos, porque
+  guardavam 10 linhas do holdout como `input_example`; as runs de treino delas continuam com
+  parâmetros e métricas.
+
+---
+
+## 11. Vídeo STAR
+
+Link: _a preencher_
+
+Roteiro (formato STAR, até 5 minutos): a **situação** da fintech com o modelo degradando em
+silêncio, a **tarefa** de construir a camada de sustentação, as **ações** demonstradas ao vivo
+(contrato bloqueando o lote sujo, simulação, relatório do Evidently, runs no MLflow, dashboard e
+ablação causal) e o **resultado**: jan/2026 sem alarme falso, jun/2026 com 52% de drift share e ROC
+AUC de 0,780 para 0,640, concept drift identificado como causa principal e plano LGPD.
