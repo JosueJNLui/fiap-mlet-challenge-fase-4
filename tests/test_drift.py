@@ -66,17 +66,22 @@ def test_report_shows_predictions_per_month(tmp_path) -> None:
 
 
 def test_alerts_flag_each_rule_and_assign_blocked_batch_to_its_month() -> None:
+    # EDUCATION já falhava no holdout: disparidade pré-existente não vira alerta mensal.
+    baseline_fairness = {"SEX": 0.95, "AGE": 0.86, "EDUCATION": 0.62, "MARRIAGE": None}
     record = {
         "month": "2026-06",
         "drift": {"critical_features": ["PAY_0", "LIMIT_BAL"], "dataset_drift": True},
         "performance": {"roc_auc": 0.70},
+        "fairness": {"SEX": 0.97, "AGE": 0.75, "EDUCATION": 0.5, "MARRIAGE": 0.5},
     }
-    assert drift.alerts(record, 0.78, ["2026-06-corrupted"]) == {
+    assert drift.alerts(record, 0.78, ["2026-06-corrupted"], baseline_fairness) == {
         "psi_critical": 2,
         "dataset_drift": 1,
         "auc_drop": 1,
         "contract_blocked": 1,
+        "fairness": 1,
     }
     calm = {**record, "month": "2026-01", "performance": {"roc_auc": 0.77},
-            "drift": {"critical_features": [], "dataset_drift": False}}
-    assert sum(drift.alerts(calm, 0.78, ["2026-06-corrupted"]).values()) == 0
+            "drift": {"critical_features": [], "dataset_drift": False},
+            "fairness": {"SEX": 0.9, "AGE": 0.85, "EDUCATION": 0.6, "MARRIAGE": None}}
+    assert sum(drift.alerts(calm, 0.78, ["2026-06-corrupted"], baseline_fairness).values()) == 0

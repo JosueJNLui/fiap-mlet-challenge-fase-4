@@ -4,7 +4,7 @@ Fontes:
 
 * ``reports/monitoring/pipeline_runs.jsonl``: eventos ``stage`` do pipeline (status,
   duração, volume, lotes bloqueados pelo contrato);
-* ``reports/drift/drift_summary.json``: drift, performance e alertas por mês.
+* ``reports/drift/drift_summary.json``: drift, performance, equidade e alertas por mês.
 
 Saída: ``reports/monitoring/dashboard.html``, com os gráficos do matplotlib embutidos em
 base64 e uma tabela ao lado de cada gráfico (os números legíveis sem depender da cor).
@@ -36,7 +36,7 @@ DASHBOARD_PATH = Path("reports/monitoring/dashboard.html")
 # Paleta de referência da skill de visualização (tema claro).
 INK, INK_2, MUTED = "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS, SURFACE = "#e1e0d9", "#c3c2b7", "#fcfcfb"
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
 BLUES = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 STATUS = {"good": "#0ca30c", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b"}
 
@@ -50,6 +50,7 @@ ALERT_LABELS = {
     "dataset_drift": "Dataset drift",
     "auc_drop": "Queda de ROC AUC",
     "contract_blocked": "Lote bloqueado",
+    "fairness": "Equidade (regra dos 4/5)",
 }
 
 
@@ -73,10 +74,10 @@ def latest_by_stage(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def month_status(alerts: dict[str, int]) -> tuple[str, str]:
-    """Estado do mês: crítico se o modelo ou a ingestão foram afetados, atenção só com PSI."""
+    """Estado do mês: crítico se modelo ou ingestão foram afetados; atenção com PSI ou equidade."""
     if alerts["auc_drop"] or alerts["dataset_drift"] or alerts["contract_blocked"]:
         return "critical", "✗ crítico"
-    if alerts["psi_critical"]:
+    if alerts["psi_critical"] or alerts["fairness"]:
         return "warning", "⚠ atenção"
     return "good", "✓ estável"
 
@@ -268,6 +269,13 @@ def _img(data: str, alt: str) -> str:
     return f'<img src="data:image/png;base64,{data}" alt="{html.escape(alt)}">'
 
 
+def _ratio_badge(ratio: float | None) -> str:
+    if ratio is None:
+        return "–"
+    ok = ratio >= THRESHOLDS.fairness_ratio_min
+    return _badge("good" if ok else "warning", f"{'✓' if ok else '⚠'} {ratio:.2f}")
+
+
 def render(summary: dict[str, Any], events: list[dict[str, Any]]) -> str:
     """Monta o HTML do painel a partir do resumo de drift e dos eventos do pipeline."""
     months = summary["months"]
@@ -333,9 +341,19 @@ def render(summary: dict[str, Any], events: list[dict[str, Any]]) -> str:
     monthly = _table(
         ["Mês", "Estado", "Drift share", "Features críticas", "PSI score", "ROC AUC",
          "Aprovação", "Default real", "PSI crít.", "Dataset drift", "Queda AUC",
-         "Lote bloq.", "Total"],
-        month_rows, numeric=set(range(4, 13)),
+         "Lote bloq.", "Equidade", "Total"],
+        month_rows, numeric=set(range(4, 14)),
     )
+
+    attributes = list(baseline["fairness"])
+    fair_rows = [
+        [label, *(_ratio_badge(ratios.get(a)) for a in attributes)]
+        for label, ratios in [
+            ("holdout (baseline)", baseline["fairness"]),
+            *((m["month"], m["fairness"]) for m in months),
+        ]
+    ]
+    fairness_table = _table(["Lote", *attributes], fair_rows)
 
     generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     return f"""<!DOCTYPE html>
@@ -371,6 +389,13 @@ Bloqueado = contrato de dados rejeitou o lote antes de escorar.</p>
 &ge; {THRESHOLDS.drift_share_critical:.0%} ou lote bloqueado. Atenção: só features com
 PSI &ge; {THRESHOLDS.psi_critical}.</p>
 <div class="card">{monthly}</div>
+
+<h2>Equidade por atributo protegido</h2>
+<p class="sub">Razão de aprovação entre o grupo menos e o mais aprovado (grupos com pelo
+menos 30 clientes). Abaixo de {THRESHOLDS.fairness_ratio_min} a regra dos 4/5 indica impacto
+desproporcional; o alerta dispara quando um atributo que passava no holdout deixa de passar.
+<code>SEX</code> e <code>MARRIAGE</code> não são features do modelo, só auditadas.</p>
+<div class="card">{fairness_table}</div>
 
 <h2>Variáveis degradadas</h2>
 <div class="card">{_img(psi_heatmap(summary), "PSI por feature e mês")}</div>

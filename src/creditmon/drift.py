@@ -25,7 +25,9 @@ reprovado (ex.: ``2026-06-corrupted``) é registrado como ``blocked`` em
 ``blocked_batches`` no ``drift_summary.json``.
 
 Alertas (``alerts()``, limiares em ``Thresholds``) por mês: features com PSI crítico,
-dataset drift, queda de ROC AUC vs. baseline e lote do mês bloqueado pelo contrato.
+dataset drift, queda de ROC AUC vs. baseline, lote do mês bloqueado pelo contrato e
+equidade (atributo protegido que cumpria a regra dos 4/5 no holdout e deixou de cumprir
+no mês; ver ``fairness.py``).
 Vão para o ``drift_summary.json`` e, com ``DAGSHUB_TOKEN``, para uma run ``drift-*`` no
 MLflow com uma métrica por mês (``step`` = índice do mês) e os relatórios como artefatos.
 No fim, regenera o ``reports/monitoring/dashboard.html`` (``dashboard.py``).
@@ -46,6 +48,7 @@ import pandas as pd
 from scipy.stats import ks_2samp
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
+from creditmon import fairness
 from creditmon.config import Settings
 from creditmon.observability import LOG_PATH, logger, setup_logging, stage
 from creditmon.schema import (
@@ -72,6 +75,7 @@ class Thresholds:
     drift_share_critical: float = 0.30  # fração de features com drift = dataset drift
     auc_drop_critical: float = 0.05  # queda absoluta de AUC vs. baseline
     default_rate_shift: float = 0.05  # variação da inadimplência real vs. holdout
+    fairness_ratio_min: float = fairness.FOUR_FIFTHS  # razão de aprovação entre grupos
 
 
 THRESHOLDS = Thresholds()
@@ -159,15 +163,25 @@ def alerts(
     record: dict[str, Any],
     baseline_auc: float,
     blocked: list[str],
+    baseline_fairness: dict[str, float | None],
     th: Thresholds = THRESHOLDS,
 ) -> dict[str, int]:
-    """Alertas do mês: contagem por tipo. Lote bloqueado conta no mês do nome (``2026-06-*``)."""
+    """Alertas do mês: contagem por tipo. Lote bloqueado conta no mês do nome (``2026-06-*``).
+
+    Equidade só alerta regressão: atributo com razão >= limiar no holdout e < limiar no mês.
+    Disparidade que já existe no holdout é achado da auditoria (``make fairness``), não alerta.
+    """
     auc_drop = baseline_auc - record["performance"]["roc_auc"]
+    min_ratio = th.fairness_ratio_min
+    fair_ok = [a for a, r in baseline_fairness.items() if r is not None and r >= min_ratio]
     return {
         "psi_critical": len(record["drift"]["critical_features"]),
         "dataset_drift": int(record["drift"]["dataset_drift"]),
         "auc_drop": int(auc_drop > th.auc_drop_critical),
         "contract_blocked": sum(name.startswith(record["month"]) for name in blocked),
+        "fairness": sum(
+            (record["fairness"].get(a) or 1.0) < min_ratio for a in fair_ok
+        ),
     }
 
 
@@ -364,6 +378,11 @@ def drift_markdown(records: list[dict[str, Any]], baseline: dict[str, Any]) -> s
     return "\n".join(lines) + "\n"
 
 
+def fairness_ratios(scored: pd.DataFrame) -> dict[str, float | None]:
+    """Razão de aprovação por atributo protegido num lote escorado."""
+    return fairness.ratios(fairness.audit(scored, scored[PREDICTION]))
+
+
 def ingest_batch(settings: Settings, name: str) -> pd.DataFrame | None:
     """Carrega um lote de produção e passa pelo contrato; ``None`` se for bloqueado."""
     from creditmon.simulation import load_batch
@@ -386,9 +405,10 @@ def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
 
     model = load_model()
     features = feature_columns(model)
-    reference, _ = load_reference(settings)
+    reference, holdout = load_reference(settings)
     reference_scored = score(model, reference)
     baseline = load_baseline_metrics()
+    baseline_fairness = fairness_ratios(score(model, holdout))
     out_dir = settings.paths.reports / "drift"
 
     records, blocked = [], []
@@ -407,6 +427,7 @@ def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
                 name, reference_scored, batch_scored, features, out_dir, save_html=save
             )
             record["table_path"] = str(out_dir / f"feature_drift_{name}.csv")
+            record["fairness"] = fairness_ratios(batch_scored)
             d = record["drift"]
             st.update(
                 rows_out=len(predictions),
@@ -420,9 +441,13 @@ def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
         )
 
     for record in records:
-        record["alerts"] = alerts(record, baseline["roc_auc"], blocked)
+        record["alerts"] = alerts(record, baseline["roc_auc"], blocked, baseline_fairness)
         record["alerts_total"] = sum(record["alerts"].values())
-    summary = {"baseline": baseline, "months": records, "blocked_batches": blocked}
+    summary = {
+        "baseline": {**baseline, "fairness": baseline_fairness},
+        "months": records,
+        "blocked_batches": blocked,
+    }
     (out_dir / "drift_summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False)
     )
@@ -442,6 +467,7 @@ def log_to_mlflow(records: list[dict[str, Any]], out_dir: Path) -> None:
             "prediction_psi": record["prediction_psi"],
             **record["performance"],
             **{f"psi_{k}": v for k, v in record["psi_by_feature"].items()},
+            **{f"fairness_{k}": v for k, v in record["fairness"].items() if v is not None},
             **{f"alerts_{k}": v for k, v in record["alerts"].items()},
             "alerts_total": record["alerts_total"],
         }
