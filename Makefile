@@ -2,7 +2,7 @@
 
 .PHONY: help install install-hooks uninstall-hooks validate validate-env validate-branch validate-commits validate-tags \
         check lint test dashboard dvc-setup dvc-remote data-download data-push data-pull \
-        reference train bad-batch demo-contract simulate drift fairness
+        reference train bad-batch demo-contract simulate drift fairness causal
 
 UV      := uv --cache-dir /tmp/uv-cache
 DVC     := $(UV) run dvc
@@ -103,6 +103,9 @@ drift: ## Detecta drift (PSI, KS, Evidently) e grava os relatorios em reports/dr
 
 fairness: ## Audita equidade por grupo e compara variantes do baseline em reports/fairness/.
 	MLFLOW_DISABLE_AGENT_HINT=1 PYTHONPATH=src $(UV) run python -W ignore -m creditmon.fairness
+
+causal: ## Ablação dos mecanismos de drift (análise causal) em reports/causal/.
+	MLFLOW_DISABLE_AGENT_HINT=1 PYTHONPATH=src $(UV) run python -W ignore -m creditmon.causal
 
 # ── Etapa 3: observabilidade ──────────────────────────────────────────────────
 
