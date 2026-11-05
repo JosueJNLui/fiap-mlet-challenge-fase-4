@@ -1,18 +1,18 @@
 {
   "baseline": {
-    "roc_auc": 0.7833143836941998,
-    "accuracy": 0.7601666666666667,
-    "precision": 0.4646860986547085,
-    "recall": 0.6313785224676314,
-    "f1": 0.535356796900226,
+    "roc_auc": 0.7797832835096216,
+    "accuracy": 0.7593333333333333,
+    "precision": 0.4632641615255188,
+    "recall": 0.6290936785986291,
+    "f1": 0.5335917312661499,
     "confusion_matrix": [
       [
-        3732,
-        955
+        3730,
+        957
       ],
       [
-        484,
-        829
+        487,
+        826
       ]
     ],
     "test_size": 6000,
@@ -58,23 +58,30 @@
         "SEX": 0.0013,
         "MARRIAGE": 0.001
       },
-      "prediction_psi": 0.012,
+      "prediction_psi": 0.0055,
       "performance": {
         "roc_auc": 0.8012,
-        "ks": 0.4801,
-        "precision": 0.4638,
-        "recall": 0.6746,
-        "f1": 0.5497,
+        "ks": 0.498,
+        "precision": 0.4721,
+        "recall": 0.689,
+        "f1": 0.5603,
         "default_rate": 0.209,
-        "mean_score": 0.4098,
-        "approval_rate": 0.696
+        "mean_score": 0.4087,
+        "approval_rate": 0.695
       },
       "evidently": {
         "evidently_drifted_columns": 0,
         "evidently_drift_share": 0.0,
         "html": "reports/drift/evidently_2026-01.html"
       },
-      "table_path": "reports/drift/feature_drift_2026-01.csv"
+      "table_path": "reports/drift/feature_drift_2026-01.csv",
+      "alerts": {
+        "psi_critical": 0,
+        "dataset_drift": 0,
+        "auc_drop": 0,
+        "contract_blocked": 0
+      },
+      "alerts_total": 0
     },
     {
       "month": "2026-02",
@@ -116,22 +123,29 @@
         "SEX": 0.0037,
         "MARRIAGE": 0.0001
       },
-      "prediction_psi": 0.0271,
+      "prediction_psi": 0.0286,
       "performance": {
-        "roc_auc": 0.7791,
-        "ks": 0.4472,
-        "precision": 0.4755,
-        "recall": 0.6352,
-        "f1": 0.5439,
+        "roc_auc": 0.7778,
+        "ks": 0.4337,
+        "precision": 0.4746,
+        "recall": 0.6516,
+        "f1": 0.5492,
         "default_rate": 0.244,
-        "mean_score": 0.4426,
-        "approval_rate": 0.674
+        "mean_score": 0.4435,
+        "approval_rate": 0.665
       },
       "evidently": {
         "evidently_drifted_columns": 1,
         "evidently_drift_share": 0.0417
       },
-      "table_path": "reports/drift/feature_drift_2026-02.csv"
+      "table_path": "reports/drift/feature_drift_2026-02.csv",
+      "alerts": {
+        "psi_critical": 0,
+        "dataset_drift": 0,
+        "auc_drop": 0,
+        "contract_blocked": 0
+      },
+      "alerts_total": 0
     },
     {
       "month": "2026-03",
@@ -176,22 +190,29 @@
         "SEX": 0.0027,
         "MARRIAGE": 0.0024
       },
-      "prediction_psi": 0.0204,
+      "prediction_psi": 0.0242,
       "performance": {
-        "roc_auc": 0.7331,
-        "ks": 0.379,
-        "precision": 0.4585,
-        "recall": 0.5984,
-        "f1": 0.5192,
+        "roc_auc": 0.732,
+        "ks": 0.3641,
+        "precision": 0.4457,
+        "recall": 0.6104,
+        "f1": 0.5153,
         "default_rate": 0.249,
-        "mean_score": 0.4365,
-        "approval_rate": 0.675
+        "mean_score": 0.4406,
+        "approval_rate": 0.659
       },
       "evidently": {
         "evidently_drifted_columns": 2,
         "evidently_drift_share": 0.0833
       },
-      "table_path": "reports/drift/feature_drift_2026-03.csv"
+      "table_path": "reports/drift/feature_drift_2026-03.csv",
+      "alerts": {
+        "psi_critical": 1,
+        "dataset_drift": 0,
+        "auc_drop": 0,
+        "contract_blocked": 0
+      },
+      "alerts_total": 1
     },
     {
       "month": "2026-04",
@@ -240,22 +261,29 @@
         "MARRIAGE": 0.0017,
         "SEX": 0.0006
       },
-      "prediction_psi": 0.0563,
+      "prediction_psi": 0.0675,
       "performance": {
-        "roc_auc": 0.7006,
-        "ks": 0.3132,
-        "precision": 0.4143,
-        "recall": 0.6067,
-        "f1": 0.4924,
+        "roc_auc": 0.7012,
+        "ks": 0.2953,
+        "precision": 0.4036,
+        "recall": 0.5955,
+        "f1": 0.4811,
         "default_rate": 0.267,
-        "mean_score": 0.464,
-        "approval_rate": 0.609
+        "mean_score": 0.4665,
+        "approval_rate": 0.606
       },
       "evidently": {
         "evidently_drifted_columns": 6,
         "evidently_drift_share": 0.25
       },
-      "table_path": "reports/drift/feature_drift_2026-04.csv"
+      "table_path": "reports/drift/feature_drift_2026-04.csv",
+      "alerts": {
+        "psi_critical": 1,
+        "dataset_drift": 0,
+        "auc_drop": 1,
+        "contract_blocked": 0
+      },
+      "alerts_total": 2
     },
     {
       "month": "2026-05",
@@ -304,22 +332,29 @@
         "PAY_5": 0.0081,
         "SEX": 0.0002
       },
-      "prediction_psi": 0.0563,
+      "prediction_psi": 0.0561,
       "performance": {
-        "roc_auc": 0.6092,
-        "ks": 0.2177,
-        "precision": 0.3798,
-        "recall": 0.4964,
-        "f1": 0.4303,
+        "roc_auc": 0.6084,
+        "ks": 0.2173,
+        "precision": 0.3873,
+        "recall": 0.5214,
+        "f1": 0.4444,
         "default_rate": 0.28,
-        "mean_score": 0.4583,
-        "approval_rate": 0.634
+        "mean_score": 0.4616,
+        "approval_rate": 0.623
       },
       "evidently": {
         "evidently_drifted_columns": 8,
         "evidently_drift_share": 0.3333
       },
-      "table_path": "reports/drift/feature_drift_2026-05.csv"
+      "table_path": "reports/drift/feature_drift_2026-05.csv",
+      "alerts": {
+        "psi_critical": 2,
+        "dataset_drift": 0,
+        "auc_drop": 1,
+        "contract_blocked": 0
+      },
+      "alerts_total": 3
     },
     {
       "month": "2026-06",
@@ -376,23 +411,33 @@
         "MARRIAGE": 0.001,
         "SEX": 0.0002
       },
-      "prediction_psi": 0.105,
+      "prediction_psi": 0.1201,
       "performance": {
-        "roc_auc": 0.6428,
-        "ks": 0.2348,
-        "precision": 0.4014,
-        "recall": 0.5567,
-        "f1": 0.4665,
+        "roc_auc": 0.6416,
+        "ks": 0.2271,
+        "precision": 0.4009,
+        "recall": 0.5667,
+        "f1": 0.4696,
         "default_rate": 0.3,
-        "mean_score": 0.4859,
-        "approval_rate": 0.584
+        "mean_score": 0.4904,
+        "approval_rate": 0.576
       },
       "evidently": {
         "evidently_drifted_columns": 11,
         "evidently_drift_share": 0.4583,
         "html": "reports/drift/evidently_2026-06.html"
       },
-      "table_path": "reports/drift/feature_drift_2026-06.csv"
+      "table_path": "reports/drift/feature_drift_2026-06.csv",
+      "alerts": {
+        "psi_critical": 4,
+        "dataset_drift": 1,
+        "auc_drop": 1,
+        "contract_blocked": 1
+      },
+      "alerts_total": 7
     }
+  ],
+  "blocked_batches": [
+    "2026-06-corrupted"
   ]
 }
