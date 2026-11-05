@@ -28,6 +28,7 @@ Alertas (``alerts()``, limiares em ``Thresholds``) por mês: features com PSI cr
 dataset drift, queda de ROC AUC vs. baseline e lote do mês bloqueado pelo contrato.
 Vão para o ``drift_summary.json`` e, com ``DAGSHUB_TOKEN``, para uma run ``drift-*`` no
 MLflow com uma métrica por mês (``step`` = índice do mês) e os relatórios como artefatos.
+No fim, regenera o ``reports/monitoring/dashboard.html`` (``dashboard.py``).
 """
 
 from __future__ import annotations
@@ -452,6 +453,7 @@ def log_to_mlflow(records: list[dict[str, Any]], out_dir: Path) -> None:
 
 
 def main() -> int:
+    from creditmon import dashboard
     from creditmon.config import load_settings
 
     parser = argparse.ArgumentParser(description="Detecta drift nos lotes de produção.")
@@ -463,8 +465,11 @@ def main() -> int:
         with stage("drift") as st:
             records = run(settings, all_html=args.all_html)
             st.update(rows_in=sum(r["rows"] for r in records), batches_analyzed=len(records))
+        board = dashboard.build()
+        logger.info(f"dashboard: {board}")
         if tracking:
             log_to_mlflow(records, settings.paths.reports / "drift")
+            mlflow.log_artifact(str(board), "monitoring")
             log_stage(st)
     return 0
 
