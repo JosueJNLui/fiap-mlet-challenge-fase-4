@@ -162,6 +162,7 @@ make bad-batch       # gera o lote sujo da demo
 make demo-contract   # demonstra o contrato aceitando o limpo e bloqueando o sujo
 make simulate        # gera os lotes mensais de produção com drift
 make drift           # detecta drift e gera os relatórios (PSI, KS, Evidently)
+make fairness        # auditoria de equidade por grupo e comparação de variantes
 make validate        # lint + testes + gates de branch/commit/tag
 make test            # pytest
 make lint            # ruff
@@ -172,7 +173,7 @@ Fluxo completo do zero:
 
 ```bash
 make install && make data-download && make reference && make train && make demo-contract
-make simulate && make drift
+make simulate && make fairness && make drift
 ```
 
 ## Governança e LGPD
@@ -185,14 +186,19 @@ Plano de proteção de dados do projeto (detalhamento na Etapa 4):
   feature do modelo) e nunca é exposto em relatórios.
 - **Base legal.** A decisão de crédito se apoia em *legítimo interesse* e *execução de
   contrato* (LGPD, art. 7º, V e IX), com o titular ciente do processo de análise.
-- **Minimização.** Só entram no modelo as 23 features preditivas; `ID` e o alvo são
-  excluídos das features. Nenhum dado sensível é inferido ou criado.
+- **Minimização.** Só entram no modelo 21 features; `ID`, o alvo, `SEX` e `MARRIAGE`
+  ficam fora das features. Nenhum dado sensível é inferido ou criado.
 - **Retenção.** Dados de referência e lotes de produção ficam versionados via DVC no
   DagsHub e são reprocessáveis; logs de experimento no MLflow guardam métricas e
   parâmetros, não o dado bruto.
-- **Vieses.** `SEX`, `EDUCATION` e `MARRIAGE` são variáveis historicamente sensíveis.
-  A Etapa 2 monitora drift nessas distribuições para dar visibilidade a possíveis
-  disparidades, e o modelo é auditável (parâmetros e versão rastreados no MLflow).
+- **Vieses.** `make fairness` mede aprovação, recall e FPR por `SEX`, `EDUCATION`,
+  `MARRIAGE` e faixa de `AGE`, e compara variantes do baseline
+  (`reports/fairness/fairness_report.md`). Retirar `SEX` e `MARRIAGE` não custou ROC AUC
+  (0,7798 → 0,7804 no holdout) e elevou a razão de aprovação feminino/masculino em
+  jun/2026 de 0,906 para 0,989, então o baseline em produção não usa essas variáveis.
+  `make drift` acompanha a razão de aprovação por mês e alerta quando um atributo que
+  cumpria a regra dos 4/5 no holdout deixa de cumprir (faixa de `AGE` a partir de
+  mar/2026, efeito do novo perfil jovem).
 - **Direito do titular.** O contrato de dados e a separação referência/produção
   permitem reconstruir e auditar o que influenciou cada decisão.
 
