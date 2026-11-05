@@ -22,6 +22,7 @@
       "MARRIAGE"
     ],
     "holdout_fraction": 0.2,
+    "default_rate": 0.21883333333333332,
     "fairness": {
       "SEX": 0.9499,
       "EDUCATION": 0.6242,
@@ -93,6 +94,7 @@
         "psi_critical": 0,
         "dataset_drift": 0,
         "auc_drop": 0,
+        "default_shift": 0,
         "contract_blocked": 0,
         "fairness": 0
       },
@@ -162,6 +164,7 @@
         "psi_critical": 0,
         "dataset_drift": 0,
         "auc_drop": 0,
+        "default_shift": 0,
         "contract_blocked": 0,
         "fairness": 0
       },
@@ -234,6 +237,7 @@
         "psi_critical": 1,
         "dataset_drift": 0,
         "auc_drop": 0,
+        "default_shift": 0,
         "contract_blocked": 0,
         "fairness": 1
       },
@@ -310,6 +314,7 @@
         "psi_critical": 1,
         "dataset_drift": 0,
         "auc_drop": 1,
+        "default_shift": 0,
         "contract_blocked": 0,
         "fairness": 1
       },
@@ -386,10 +391,11 @@
         "psi_critical": 2,
         "dataset_drift": 0,
         "auc_drop": 1,
+        "default_shift": 1,
         "contract_blocked": 0,
         "fairness": 1
       },
-      "alerts_total": 4
+      "alerts_total": 5
     },
     {
       "month": "2026-06",
@@ -471,10 +477,11 @@
         "psi_critical": 4,
         "dataset_drift": 1,
         "auc_drop": 1,
+        "default_shift": 1,
         "contract_blocked": 1,
         "fairness": 1
       },
-      "alerts_total": 8
+      "alerts_total": 9
     }
   ],
   "blocked_batches": [
