@@ -29,7 +29,7 @@ from creditmon.config import Settings
 from creditmon.data import HOLDOUT_FRACTION, TARGET, load_reference
 from creditmon.observability import logger, setup_logging, stage
 from creditmon.schema import ID_COLUMN, validate_batch
-from creditmon.tracking import init_mlflow
+from creditmon.tracking import init_mlflow, pipeline_tags
 
 DEFAULT_MODEL_NAME = "credit_scoring_baseline"
 DEFAULT_ALIAS = "production"
@@ -49,7 +49,10 @@ def train_baseline(settings: Settings, *, track: bool = True) -> dict:
     """
     reference, holdout = load_reference(settings)
 
-    if track and settings.dagshub_token:
+    if track and not settings.dagshub_token:
+        logger.warning("DAGSHUB_TOKEN ausente: treino NÃO registrado no MLflow (artefatos locais)")
+        track = False
+    if track:
         init_mlflow(settings)
 
     feature_columns = [c for c in reference.columns if c not in {ID_COLUMN, TARGET}]
@@ -108,7 +111,7 @@ def train_baseline(settings: Settings, *, track: bool = True) -> dict:
 
     if track:
         run_name = f"credit-baseline-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        with mlflow.start_run(run_name=run_name):
+        with mlflow.start_run(run_name=run_name, tags=pipeline_tags("train")):
             mlflow.log_params(params)
             mlflow.log_metrics(
                 {
