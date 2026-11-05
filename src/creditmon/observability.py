@@ -73,7 +73,8 @@ def stage(name: str, **fields: Any) -> Iterator[dict[str, Any]]:
     """Mede e registra uma etapa do pipeline.
 
     O dicionário devolvido pode ser preenchido dentro do bloco (``rows_in``,
-    ``rows_out`` ou qualquer métrica extra) e vai junto no evento. Exceções são
+    ``rows_out`` ou qualquer métrica extra) e vai junto no evento; ao sair, recebe
+    ``status`` e ``duration_s``. Exceções são
     registradas e relançadas: quem chama decide se o pipeline segue.
     """
     info: dict[str, Any] = {"rows_in": None, "rows_out": None, **fields}
@@ -90,6 +91,7 @@ def stage(name: str, **fields: Any) -> Iterator[dict[str, Any]]:
         raise
     finally:
         duration = round(time.perf_counter() - start, 3)
+        info.update(status=status, duration_s=duration)  # quem chamou lê o resultado no dict
         event = {
             "event": "stage",
             "stage": name,
