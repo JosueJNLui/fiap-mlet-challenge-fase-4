@@ -15,6 +15,7 @@ from pathlib import Path
 import pandas as pd
 
 from creditmon.config import Settings
+from creditmon.observability import logger, setup_logging, stage
 from creditmon.schema import TARGET, validate_batch
 
 RAW_CSV_NAME = "default_of_credit_card_clients.csv"
@@ -54,17 +55,20 @@ def build_reference(settings: Settings) -> tuple[Path, Path]:
     Returns:
         Os caminhos de `reference.csv` e `holdout.csv`.
     """
-    reference, holdout = split_reference(load_raw(settings), settings.seed)
+    with stage("reference") as st:
+        raw = load_raw(settings)
+        reference, holdout = split_reference(raw, settings.seed)
 
-    reference_csv, holdout_csv = reference_paths(settings)
-    reference_csv.parent.mkdir(parents=True, exist_ok=True)
-    reference.to_csv(reference_csv, index=False)
-    holdout.to_csv(holdout_csv, index=False)
+        reference_csv, holdout_csv = reference_paths(settings)
+        reference_csv.parent.mkdir(parents=True, exist_ok=True)
+        reference.to_csv(reference_csv, index=False)
+        holdout.to_csv(holdout_csv, index=False)
+        st.update(rows_in=len(raw), rows_out=len(reference) + len(holdout))
 
-    print(f"{reference_csv} ({len(reference):,} linhas)")
-    print(f"{holdout_csv} ({len(holdout):,} linhas)")
-    print(f"taxa de default - referencia: {reference[TARGET].mean():.4f}")
-    print(f"taxa de default - holdout:    {holdout[TARGET].mean():.4f}")
+    logger.info(f"{reference_csv} ({len(reference):,} linhas)")
+    logger.info(f"{holdout_csv} ({len(holdout):,} linhas)")
+    logger.info(f"taxa de default - referência: {reference[TARGET].mean():.4f}")
+    logger.info(f"taxa de default - holdout:    {holdout[TARGET].mean():.4f}")
     return reference_csv, holdout_csv
 
 
@@ -84,10 +88,13 @@ def main() -> int:
     """Congela a referência e o holdout a partir do dataset cru."""
     from creditmon.config import load_settings
 
+    setup_logging()
     settings = load_settings()
     if not settings.dagshub_token:
         # A validação da referência não precisa de DagsHub; o treino, sim.
-        print("(aviso) DAGSHUB_TOKEN ausente: a referência é gerada, mas `make train` vai exigir.")
+        logger.warning(
+            "(aviso) DAGSHUB_TOKEN ausente: a referência é gerada, mas `make train` vai exigir."
+        )
     build_reference(settings)
     return 0
 

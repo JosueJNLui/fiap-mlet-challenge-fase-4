@@ -27,6 +27,7 @@ from xgboost import XGBClassifier
 
 from creditmon.config import Settings
 from creditmon.data import HOLDOUT_FRACTION, TARGET, load_reference
+from creditmon.observability import logger, setup_logging, stage
 from creditmon.schema import ID_COLUMN, validate_batch
 from creditmon.tracking import init_mlflow
 
@@ -102,8 +103,8 @@ def train_baseline(settings: Settings, *, track: bool = True) -> dict:
 
     with open(METRICS_PATH, "w") as handle:
         json.dump(metrics, handle, indent=2)
-    print(f"modelo salvo: {MODEL_PATH}")
-    print(f"metricas salvas: {METRICS_PATH}")
+    logger.info(f"modelo salvo: {MODEL_PATH}")
+    logger.info(f"métricas salvas: {METRICS_PATH}")
 
     if track:
         run_name = f"credit-baseline-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -147,14 +148,14 @@ def train_baseline(settings: Settings, *, track: bool = True) -> dict:
                     client.set_registered_model_alias(
                         DEFAULT_MODEL_NAME, DEFAULT_ALIAS, latest.version
                     )
-                    print(
+                    logger.info(
                         f"registro: {DEFAULT_MODEL_NAME} "
                         f"v{latest.version} -> alias '{DEFAULT_ALIAS}'"
                     )
             except Exception:
-                print("alias não promovido (continuando)")
+                logger.warning("alias não promovido (continuando)")
 
-    print("treino concluído")
+    logger.info("treino concluído")
     return metrics
 
 
@@ -194,8 +195,11 @@ def validate_and_predict(frame: pd.DataFrame, settings: Settings) -> np.ndarray:
 def main() -> int:
     from creditmon.config import load_settings
 
+    setup_logging()
     settings = load_settings()
-    train_baseline(settings, track=True)
+    with stage("train") as st:
+        metrics = train_baseline(settings, track=True)
+        st.update(rows_in=metrics["train_size"], roc_auc=round(metrics["roc_auc"], 4))
     return 0
 
 

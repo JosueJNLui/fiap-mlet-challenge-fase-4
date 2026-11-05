@@ -21,6 +21,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from creditmon.config import load_settings  # noqa: E402
+from creditmon.observability import logger, setup_logging, stage  # noqa: E402
 
 UCI_URL = "https://archive.ics.uci.edu/static/public/350/default+of+credit+card+clients.zip"
 XLS_NAME = "default of credit card clients.xls"
@@ -48,8 +49,8 @@ def to_dataframe(xls_payload: bytes) -> pd.DataFrame:
     return pd.read_excel(io.BytesIO(xls_payload), header=HEADER_ROW)
 
 
-def main() -> int:
-    """Baixa, converte e valida o dataset, escrevendo o CSV em `data/raw/`."""
+def download(st: dict) -> int:
+    """Baixa e converte o dataset, escrevendo o CSV em `data/raw/`."""
     settings = load_settings()
     raw_dir = settings.paths.raw
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -58,31 +59,40 @@ def main() -> int:
     if csv_path.exists():
         rows = sum(1 for _ in csv_path.open()) - 1
         if rows == EXPECTED_ROWS:
-            print(f"Dataset ja presente: {csv_path} ({rows} linhas). Nada a fazer.")
+            logger.info(f"Dataset já presente: {csv_path} ({rows} linhas). Nada a fazer.")
+            st["rows_out"] = rows
             return 0
-        print(f"CSV com {rows} linhas (esperado {EXPECTED_ROWS}); rebaixando.")
+        logger.info(f"CSV com {rows} linhas (esperado {EXPECTED_ROWS}); rebaixando.")
 
-    print(f"Baixando {UCI_URL}")
+    logger.info(f"Baixando {UCI_URL}")
     xls_payload = xls_bytes_from_zip(download_zip())
     frame = to_dataframe(xls_payload)
 
     if len(frame) != EXPECTED_ROWS:
-        print(
-            f"ERRO: esperado {EXPECTED_ROWS} linhas, veio {len(frame)}. "
-            "A UCI pode ter trocado o arquivo.",
-            file=sys.stderr,
+        raise ValueError(
+            f"esperado {EXPECTED_ROWS} linhas, veio {len(frame)}. "
+            "A UCI pode ter trocado o arquivo."
         )
-        return 1
 
     xls_path = raw_dir / XLS_NAME
     xls_path.write_bytes(xls_payload)
     frame.to_csv(csv_path, index=False)
 
-    print(f"{xls_path} ({xls_path.stat().st_size:,} bytes)")
-    print(f"{csv_path} ({csv_path.stat().st_size:,} bytes)")
-    print(f"{len(frame)} linhas, {len(frame.columns)} colunas")
-    print(f"Colunas: {', '.join(frame.columns)}")
+    logger.info(f"{xls_path} ({xls_path.stat().st_size:,} bytes)")
+    logger.info(f"{csv_path} ({csv_path.stat().st_size:,} bytes)")
+    logger.info(f"{len(frame)} linhas, {len(frame.columns)} colunas")
+    logger.info(f"Colunas: {', '.join(frame.columns)}")
+    st["rows_out"] = len(frame)
     return 0
+
+
+def main() -> int:
+    setup_logging()
+    try:
+        with stage("data_download") as st:
+            return download(st)
+    except Exception:  # noqa: BLE001 - o evento `failed` já foi registrado pelo stage
+        return 1
 
 
 if __name__ == "__main__":
