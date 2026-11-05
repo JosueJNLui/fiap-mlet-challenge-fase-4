@@ -36,6 +36,33 @@ DEFAULT_ALIAS = "production"
 MODEL_PATH = "models/baseline.pkl"
 METRICS_PATH = "models/baseline_metrics.json"
 
+# Fora das features por não discriminação (LGPD, art. 6º, IX): removê-las não custa ROC AUC
+# no holdout e reduz a disparidade de aprovação por sexo (`make fairness`). Seguem no
+# contrato e nos lotes para auditar equidade por grupo.
+EXCLUDED_FEATURES = ("SEX", "MARRIAGE")
+
+
+def model_features(columns, exclude=EXCLUDED_FEATURES) -> list[str]:
+    """Colunas usadas pelo modelo: tudo menos `ID`, alvo e as variáveis excluídas."""
+    return [c for c in columns if c not in {ID_COLUMN, TARGET, *exclude}]
+
+
+def fit_model(frame: pd.DataFrame, features: list[str], seed: int) -> tuple[XGBClassifier, dict]:
+    """Treina o XGBoost do baseline (peso da classe positiva pelo desbalanceamento)."""
+    y = frame[TARGET].astype(int)
+    neg, pos = (y == 0).sum(), (y == 1).sum()
+    params = {
+        "seed": seed,
+        "n_estimators": 200,
+        "max_depth": 4,
+        "learning_rate": 0.1,
+        "subsample": 0.9,
+        "colsample_bytree": 0.9,
+        "eval_metric": "logloss",
+        "scale_pos_weight": float(neg / pos) if pos else 1.0,
+    }
+    return XGBClassifier(**params).fit(frame[features], y), params
+
 
 def train_baseline(settings: Settings, *, track: bool = True) -> dict:
     """Treina o baseline, loga no MLflow e grava artefatos locais.
@@ -55,29 +82,10 @@ def train_baseline(settings: Settings, *, track: bool = True) -> dict:
     if track:
         init_mlflow(settings)
 
-    feature_columns = [c for c in reference.columns if c not in {ID_COLUMN, TARGET}]
-    X_train = reference[feature_columns]
-    y_train = reference[TARGET].astype(int)
+    feature_columns = model_features(reference.columns)
     X_test = holdout[feature_columns]
     y_test = holdout[TARGET].astype(int)
-
-    neg = (y_train == 0).sum()
-    pos = (y_train == 1).sum()
-    scale_pos_weight = (neg / pos) if pos else 1.0
-
-    params = {
-        "seed": settings.seed,
-        "n_estimators": 200,
-        "max_depth": 4,
-        "learning_rate": 0.1,
-        "subsample": 0.9,
-        "colsample_bytree": 0.9,
-        "eval_metric": "logloss",
-        "scale_pos_weight": float(scale_pos_weight),
-    }
-
-    model = XGBClassifier(**params)
-    model.fit(X_train, y_train)
+    model, params = fit_model(reference, feature_columns, settings.seed)
 
     preds = model.predict(X_test)
     proba = model.predict_proba(X_test)[:, 1]
@@ -90,7 +98,8 @@ def train_baseline(settings: Settings, *, track: bool = True) -> dict:
         "f1": float(f1_score(y_test, preds, zero_division=0)),
         "confusion_matrix": confusion_matrix(y_test, preds).tolist(),
         "test_size": int(len(X_test)),
-        "train_size": int(len(X_train)),
+        "train_size": int(len(reference)),
+        "excluded_features": list(EXCLUDED_FEATURES),
         "holdout_fraction": HOLDOUT_FRACTION,
     }
 
@@ -112,12 +121,12 @@ def train_baseline(settings: Settings, *, track: bool = True) -> dict:
     if track:
         run_name = f"credit-baseline-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         with mlflow.start_run(run_name=run_name, tags=pipeline_tags("train")):
-            mlflow.log_params(params)
+            mlflow.log_params({**params, "excluded_features": ",".join(EXCLUDED_FEATURES)})
             mlflow.log_metrics(
                 {
                     k: v
                     for k, v in metrics.items()
-                    if not isinstance(v, list)
+                    if isinstance(v, int | float)
                 }
             )
             mlflow.log_dict(metrics, "metrics/metrics.json")
@@ -183,10 +192,7 @@ def predict_from_model(
     with open(model_path, "rb") as handle:
         model = pickle.load(handle)
 
-    feature_columns = [
-        c for c in frame.columns if c not in {ID_COLUMN, TARGET}
-    ]
-    return model.predict(frame[feature_columns])
+    return model.predict(frame[list(model.feature_names_in_)])
 
 
 def validate_and_predict(frame: pd.DataFrame, settings: Settings) -> np.ndarray:
