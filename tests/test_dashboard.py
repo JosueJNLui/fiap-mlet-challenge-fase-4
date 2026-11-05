@@ -5,7 +5,8 @@ import json
 from creditmon import dashboard
 
 NO_ALERTS = {
-    "psi_critical": 0, "dataset_drift": 0, "auc_drop": 0, "contract_blocked": 0, "fairness": 0
+    "psi_critical": 0, "dataset_drift": 0, "auc_drop": 0, "default_shift": 0,
+    "contract_blocked": 0, "fairness": 0,
 }
 
 
@@ -47,12 +48,13 @@ def test_month_status_levels() -> None:
     assert dashboard.month_status(NO_ALERTS)[0] == "good"
     assert dashboard.month_status({**NO_ALERTS, "psi_critical": 2})[0] == "warning"
     assert dashboard.month_status({**NO_ALERTS, "fairness": 1})[0] == "warning"
+    assert dashboard.month_status({**NO_ALERTS, "default_shift": 1})[0] == "warning"
     assert dashboard.month_status({**NO_ALERTS, "auc_drop": 1})[0] == "critical"
 
 
 def test_build_writes_self_contained_html(tmp_path) -> None:
     summary = {
-        "baseline": {"roc_auc": 0.78, "fairness": {"SEX": 0.95, "AGE": 0.86}},
+        "baseline": {"roc_auc": 0.78, "default_rate": 0.22, "fairness": {"SEX": 0.95, "AGE": 0.86}},
         "months": [
             month("2026-01", 0.0, 0.80, NO_ALERTS),
             month("2026-02", 0.5, 0.65,
@@ -73,4 +75,7 @@ def test_build_writes_self_contained_html(tmp_path) -> None:
     assert page.count("data:image/png;base64,") == 4
     assert "✓ estável" in page and "✗ crítico" in page and "⛔ bloqueado" in page
     assert "2026-02-corrupted" in page
+    # Cada tipo de alerta tem cor, rótulo e coluna própria na tabela por mês.
+    assert set(dashboard.ALERT_LABELS) == set(dashboard.ALERT_SHORT) == set(NO_ALERTS)
+    assert "Inadimpl." in page
     assert "⚠ 0.70" in page and "✓ 0.86" in page

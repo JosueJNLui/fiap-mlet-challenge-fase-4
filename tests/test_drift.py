@@ -71,17 +71,20 @@ def test_alerts_flag_each_rule_and_assign_blocked_batch_to_its_month() -> None:
     record = {
         "month": "2026-06",
         "drift": {"critical_features": ["PAY_0", "LIMIT_BAL"], "dataset_drift": True},
-        "performance": {"roc_auc": 0.70},
+        "performance": {"roc_auc": 0.70, "default_rate": 0.30},
         "fairness": {"SEX": 0.97, "AGE": 0.75, "EDUCATION": 0.5, "MARRIAGE": 0.5},
     }
-    assert drift.alerts(record, 0.78, ["2026-06-corrupted"], baseline_fairness) == {
+    assert drift.alerts(record, 0.78, ["2026-06-corrupted"], baseline_fairness, 0.22) == {
         "psi_critical": 2,
         "dataset_drift": 1,
         "auc_drop": 1,
+        "default_shift": 1,
         "contract_blocked": 1,
         "fairness": 1,
     }
-    calm = {**record, "month": "2026-01", "performance": {"roc_auc": 0.77},
+    calm = {**record, "month": "2026-01", "performance": {"roc_auc": 0.77, "default_rate": 0.25},
             "drift": {"critical_features": [], "dataset_drift": False},
             "fairness": {"SEX": 0.9, "AGE": 0.85, "EDUCATION": 0.6, "MARRIAGE": None}}
-    assert sum(drift.alerts(calm, 0.78, ["2026-06-corrupted"], baseline_fairness).values()) == 0
+    # Inadimplência 0,25 vs. 0,22 do holdout: dentro da tolerância de 5 p.p.
+    calm_alerts = drift.alerts(calm, 0.78, ["2026-06-corrupted"], baseline_fairness, 0.22)
+    assert sum(calm_alerts.values()) == 0

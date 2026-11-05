@@ -32,9 +32,9 @@ reprovado (ex.: ``2026-06-corrupted``) é registrado como ``blocked`` em
 ``blocked_batches`` no ``drift_summary.json``.
 
 Alertas (``alerts()``, limiares em ``Thresholds``) por mês: features com PSI crítico,
-dataset drift, queda de ROC AUC vs. baseline, lote do mês bloqueado pelo contrato e
-equidade (atributo protegido que cumpria a regra dos 4/5 no holdout e deixou de cumprir
-no mês; ver ``fairness.py``).
+dataset drift, queda de ROC AUC vs. baseline, inadimplência real afastada da do holdout,
+lote do mês bloqueado pelo contrato e equidade (atributo protegido que cumpria a regra
+dos 4/5 no holdout e deixou de cumprir no mês; ver ``fairness.py``).
 Vão para o ``drift_summary.json`` e, com ``DAGSHUB_TOKEN``, para uma run ``drift-*`` no
 MLflow com uma métrica por mês (``step`` = índice do mês) e os relatórios como artefatos.
 No fim, regenera o ``reports/monitoring/dashboard.html`` (``dashboard.py``).
@@ -171,6 +171,7 @@ def alerts(
     baseline_auc: float,
     blocked: list[str],
     baseline_fairness: dict[str, float | None],
+    baseline_default_rate: float,
     th: Thresholds = THRESHOLDS,
 ) -> dict[str, int]:
     """Alertas do mês: contagem por tipo. Lote bloqueado conta no mês do nome (``2026-06-*``).
@@ -185,6 +186,10 @@ def alerts(
         "psi_critical": len(record["drift"]["critical_features"]),
         "dataset_drift": int(record["drift"]["dataset_drift"]),
         "auc_drop": int(auc_drop > th.auc_drop_critical),
+        "default_shift": int(
+            abs(record["performance"]["default_rate"] - baseline_default_rate)
+            > th.default_rate_shift
+        ),
         "contract_blocked": sum(name.startswith(record["month"]) for name in blocked),
         "fairness": sum(
             (record["fairness"].get(a) or 1.0) < min_ratio for a in fair_ok
@@ -414,7 +419,7 @@ def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
     features = feature_columns(model)
     reference, holdout = load_reference(settings)
     reference_scored = score(model, reference)
-    baseline = load_baseline_metrics()
+    baseline = {**load_baseline_metrics(), "default_rate": float(holdout[TARGET].mean())}
     baseline_fairness = fairness_ratios(score(model, holdout))
     out_dir = settings.paths.reports / "drift"
 
@@ -448,7 +453,9 @@ def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
         )
 
     for record in records:
-        record["alerts"] = alerts(record, baseline["roc_auc"], blocked, baseline_fairness)
+        record["alerts"] = alerts(
+            record, baseline["roc_auc"], blocked, baseline_fairness, baseline["default_rate"]
+        )
         record["alerts_total"] = sum(record["alerts"].values())
     summary = {
         "baseline": {**baseline, "fairness": baseline_fairness},

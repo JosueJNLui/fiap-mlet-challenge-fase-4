@@ -36,7 +36,7 @@ DASHBOARD_PATH = Path("reports/monitoring/dashboard.html")
 # Paleta de referência da skill de visualização (tema claro).
 INK, INK_2, MUTED = "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS, SURFACE = "#e1e0d9", "#c3c2b7", "#fcfcfb"
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
 BLUES = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 STATUS = {"good": "#0ca30c", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b"}
 
@@ -49,8 +49,17 @@ ALERT_LABELS = {
     "psi_critical": "Feature com PSI crítico",
     "dataset_drift": "Dataset drift",
     "auc_drop": "Queda de ROC AUC",
+    "default_shift": "Inadimplência real fora do holdout",
     "contract_blocked": "Lote bloqueado",
     "fairness": "Equidade (regra dos 4/5)",
+}
+ALERT_SHORT = {
+    "psi_critical": "PSI crít.",
+    "dataset_drift": "Dataset drift",
+    "auc_drop": "Queda AUC",
+    "default_shift": "Inadimpl.",
+    "contract_blocked": "Lote bloq.",
+    "fairness": "Equidade",
 }
 
 
@@ -74,10 +83,11 @@ def latest_by_stage(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def month_status(alerts: dict[str, int]) -> tuple[str, str]:
-    """Estado do mês: crítico se modelo ou ingestão foram afetados; atenção com PSI ou equidade."""
+    """Estado do mês: crítico se modelo ou ingestão foram afetados; atenção com PSI, equidade
+    ou inadimplência real fora do holdout."""
     if alerts["auc_drop"] or alerts["dataset_drift"] or alerts["contract_blocked"]:
         return "critical", "✗ crítico"
-    if alerts["psi_critical"] or alerts["fairness"]:
+    if alerts["psi_critical"] or alerts["fairness"] or alerts["default_shift"]:
         return "warning", "⚠ atenção"
     return "good", "✓ estável"
 
@@ -102,10 +112,11 @@ def _png(fig) -> str:
     return base64.b64encode(buffer.getvalue()).decode()
 
 
-def _limit(ax, y: float, label: str) -> None:
+def _limit(ax, y: float, label: str, left: bool = False) -> None:
     ax.axhline(y, color=MUTED, linewidth=1, linestyle="--")
-    ax.annotate(label, (1, y), xycoords=("axes fraction", "data"), xytext=(0, 3),
-                textcoords="offset points", ha="right", fontsize=8, color=INK_2)
+    ax.annotate(label, (0 if left else 1, y), xycoords=("axes fraction", "data"), xytext=(0, 3),
+                textcoords="offset points", ha="left" if left else "right", fontsize=8,
+                color=INK_2)
 
 
 def _line(ax, months, values, title: str, fmt: str, color: str = SERIES[0]) -> None:
@@ -152,6 +163,8 @@ def business_chart(summary: dict[str, Any]) -> str:
     for (label, values), color in zip(series, SERIES, strict=False):
         _line(ax, months, values, "Decisão vs. inadimplência real", ".0%", color)
         ax.lines[-1].set_label(label)
+    base_default = summary["baseline"]["default_rate"]
+    _limit(ax, base_default + THRESHOLDS.default_rate_shift, "limite de inadimplência", left=True)
     ax.set_ylim(0, 1)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
     ax.legend(frameon=False, fontsize=9, labelcolor=INK_2, loc="center left")
@@ -340,9 +353,8 @@ def render(summary: dict[str, Any], events: list[dict[str, Any]]) -> str:
     ]
     monthly = _table(
         ["Mês", "Estado", "Drift share", "Features críticas", "PSI score", "ROC AUC",
-         "Aprovação", "Default real", "PSI crít.", "Dataset drift", "Queda AUC",
-         "Lote bloq.", "Equidade", "Total"],
-        month_rows, numeric=set(range(4, 14)),
+         "Aprovação", "Default real", *(ALERT_SHORT[k] for k in ALERT_LABELS), "Total"],
+        month_rows, numeric=set(range(4, 9 + len(ALERT_LABELS))),
     )
 
     attributes = list(baseline["fairness"])
@@ -386,8 +398,9 @@ Bloqueado = contrato de dados rejeitou o lote antes de escorar.</p>
 
 <h2>Estado por mês</h2>
 <p class="sub">Crítico: queda de ROC AUC &gt; {THRESHOLDS.auc_drop_critical}, drift share
-&ge; {THRESHOLDS.drift_share_critical:.0%} ou lote bloqueado. Atenção: só features com
-PSI &ge; {THRESHOLDS.psi_critical}.</p>
+&ge; {THRESHOLDS.drift_share_critical:.0%} ou lote bloqueado. Atenção: features com
+PSI &ge; {THRESHOLDS.psi_critical}, equidade abaixo de {THRESHOLDS.fairness_ratio_min} ou
+inadimplência real a mais de {THRESHOLDS.default_rate_shift * 100:.0f} p.p. do holdout.</p>
 <div class="card">{monthly}</div>
 
 <h2>Equidade por atributo protegido</h2>
