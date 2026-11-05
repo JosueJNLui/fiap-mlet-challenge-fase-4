@@ -18,6 +18,11 @@ gera os HTMLs em ``reports/drift/``. O PSI dele é gravado ao lado do nosso em
 Uso: ``make drift`` (depois de ``make train`` e ``make simulate``). Além dos relatórios,
 grava as predições do baseline para cada lote em
 ``data/processed/production/predictions_<mes>.csv`` (``ID``, ``score``, ``prediction``).
+
+Cada lote passa pelo contrato de dados (``schema.py``) antes de ser escorado. Lote
+reprovado (ex.: ``2026-06-corrupted``) é registrado como ``blocked`` em
+``reports/monitoring/pipeline_runs.jsonl``, não é escorado e entra em
+``blocked_batches`` no ``drift_summary.json``.
 """
 
 from __future__ import annotations
@@ -35,7 +40,14 @@ from scipy.stats import ks_2samp
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
 from creditmon.config import Settings
-from creditmon.schema import CATEGORICAL_COLUMNS, ID_COLUMN, TARGET
+from creditmon.observability import logger, setup_logging, stage
+from creditmon.schema import (
+    CATEGORICAL_COLUMNS,
+    ID_COLUMN,
+    TARGET,
+    DataContractError,
+    validate_batch,
+)
 from creditmon.train import METRICS_PATH, MODEL_PATH
 
 EPS = 1e-4
@@ -328,10 +340,25 @@ def drift_markdown(records: list[dict[str, Any]], baseline: dict[str, Any]) -> s
     return "\n".join(lines) + "\n"
 
 
+def ingest_batch(settings: Settings, name: str) -> pd.DataFrame | None:
+    """Carrega um lote de produção e passa pelo contrato; ``None`` se for bloqueado."""
+    from creditmon.simulation import load_batch
+
+    raw = load_batch(settings, name)
+    try:
+        with stage("ingest_production", batch=name, rows_in=len(raw)) as st:
+            batch = validate_batch(raw, name=name)
+            st["rows_out"] = len(batch)
+    except DataContractError as error:
+        logger.warning(f"{name}: lote bloqueado pelo contrato, não será escorado\n{error.summary}")
+        return None
+    return batch
+
+
 def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
     """Compara cada lote de produção com a referência e grava os relatórios."""
     from creditmon.data import load_reference
-    from creditmon.simulation import MONTHS, load_batch, production_dir
+    from creditmon.simulation import CORRUPTED_BATCH, MONTHS, production_dir
 
     model = load_model()
     features = feature_columns(model)
@@ -340,29 +367,40 @@ def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
     baseline = load_baseline_metrics()
     out_dir = settings.paths.reports / "drift"
 
-    records = []
-    for i, month in enumerate(MONTHS):
-        batch_scored = score(model, load_batch(settings, month))
-        # Predições do modelo para o lote de produção (probabilidade e decisão por cliente).
-        predictions = batch_scored[[ID_COLUMN, SCORE, PREDICTION]]
-        predictions.to_csv(production_dir(settings) / f"predictions_{month}.csv", index=False)
-        save = all_html or i in (0, len(MONTHS) - 1)
-        record = analyze_batch(
-            month, reference_scored, batch_scored, features, out_dir, save_html=save
-        )
-        record["table_path"] = str(out_dir / f"feature_drift_{month}.csv")
+    records, blocked = [], []
+    for name in [*MONTHS, CORRUPTED_BATCH]:
+        batch = ingest_batch(settings, name)
+        if batch is None:
+            blocked.append(name)
+            continue
+        with stage("score_and_drift", batch=name, rows_in=len(batch)) as st:
+            batch_scored = score(model, batch)
+            # Predições do modelo para o lote de produção (probabilidade e decisão por cliente).
+            predictions = batch_scored[[ID_COLUMN, SCORE, PREDICTION]]
+            predictions.to_csv(production_dir(settings) / f"predictions_{name}.csv", index=False)
+            save = all_html or name in (MONTHS[0], MONTHS[-1])
+            record = analyze_batch(
+                name, reference_scored, batch_scored, features, out_dir, save_html=save
+            )
+            record["table_path"] = str(out_dir / f"feature_drift_{name}.csv")
+            d = record["drift"]
+            st.update(
+                rows_out=len(predictions),
+                drift_share=d["drift_share"],
+                roc_auc=record["performance"]["roc_auc"],
+            )
         records.append(record)
-        d = record["drift"]
-        print(
-            f"{month}: {d['n_drifted']}/{d['n_features']} features com drift "
+        logger.info(
+            f"{name}: {d['n_drifted']}/{d['n_features']} features com drift "
             f"{d['drifted_features'][:5]} | AUC {record['performance']['roc_auc']:.3f}"
         )
 
+    summary = {"baseline": baseline, "months": records, "blocked_batches": blocked}
     (out_dir / "drift_summary.json").write_text(
-        json.dumps({"baseline": baseline, "months": records}, indent=2, ensure_ascii=False)
+        json.dumps(summary, indent=2, ensure_ascii=False)
     )
     (out_dir / "drift_report.md").write_text(drift_markdown(records, baseline), encoding="utf-8")
-    print(f"relatórios em {out_dir}/")
+    logger.info(f"relatórios em {out_dir}/")
     return records
 
 
@@ -372,7 +410,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Detecta drift nos lotes de produção.")
     parser.add_argument("--all-html", action="store_true", help="salva o HTML de todos os meses")
     args = parser.parse_args()
-    run(load_settings(), all_html=args.all_html)
+    setup_logging()
+    with stage("drift") as st:
+        records = run(load_settings(), all_html=args.all_html)
+        st.update(rows_in=sum(r["rows"] for r in records), batches_analyzed=len(records))
     return 0
 
 
