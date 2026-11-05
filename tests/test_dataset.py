@@ -8,7 +8,7 @@ import pytest
 from creditmon.config import load_settings
 
 # 25 colunas da UCI: 1 ID, 4 categoricas, 1 idade, 6 status de pagamento,
-# 6 faturas, 6 pagamentos e o alvo binario.
+# 6 faturas, 6 pagamentos e o alvo binário.
 EXPECTED_COLUMNS = [
     "ID",
     "LIMIT_BAL",
@@ -40,7 +40,7 @@ EXPECTED_COLUMNS = [
 
 @pytest.fixture(scope="module")
 def raw_dir() -> Path:
-    """Diretorio raw do projeto, pulando o teste se o dataset nao foi baixado."""
+    """Diretório raw do projeto, pulando o teste se o dataset não foi baixado."""
     path = load_settings().paths.raw
     if not (path / "default_of_credit_card_clients.csv").exists():
         pytest.skip("dataset ausente: rode `make data-download`")
@@ -55,7 +55,7 @@ def test_csv_has_the_documented_schema(raw_dir: Path) -> None:
 
 
 def test_csv_has_30k_rows_and_binary_target(raw_dir: Path) -> None:
-    """30.000 linhas e alvo em {0, 1}: o minimo de 5.000 do brief, com folga."""
+    """30.000 linhas e alvo em {0, 1}: o mínimo de 5.000 do brief, com folga."""
     with (raw_dir / "default_of_credit_card_clients.csv").open() as handle:
         reader = csv.DictReader(handle)
         target = "default payment next month"
