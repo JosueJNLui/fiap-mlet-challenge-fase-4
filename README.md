@@ -17,6 +17,7 @@ monitoramento e documentação de compliance (LGPD).
 - [Setup](#setup)
 - [Etapa 1 — Contrato de dados e baseline](#etapa-1--contrato-de-dados-e-baseline)
 - [Etapa 2 — Simulação e detecção de drift](#etapa-2--simulação-e-detecção-de-drift)
+- [Análise causal da degradação](#análise-causal-da-degradação)
 - [Comandos](#comandos)
 - [Governança e LGPD](#governança-e-lgpd)
 - [Convenções de Git](#convenções-de-git)
@@ -150,6 +151,81 @@ make drift      # predições + reports/drift/
 | Tabela estatística por feature (PSI, PSI Evidently, KS, médias) | `reports/drift/feature_drift_<mes>.csv` |
 | Resumo para os próximos estágios | `reports/drift/drift_summary.json` |
 
+## Análise causal da degradação
+
+Como o cenário de produção é simulado, a causa da queda do modelo pode ser medida por
+**intervenção**, não só inferida. `src/creditmon/causal.py` (`make causal`) roda uma
+ablação sobre o holdout inteiro (6.000 clientes, choque de intensidade 100%, mesma seed e
+mesmos sorteios aleatórios em todos os cenários): cada mecanismo **isolado** e o choque
+completo com cada mecanismo **removido**. Resultados em `reports/causal/causal_report.md`.
+
+```mermaid
+flowchart LR
+    E[Choque econômico] --> I[Inflação]
+    E --> U[Desemprego]
+    E --> P[Expansão comercial:<br/>público de entrada]
+    E --> R[Perda de renda<br/>ainda sem atraso]
+    I -->|D1| X1["BILL_AMT* ↑ / PAY_AMT* ↓"]
+    U -->|D2| X2["PAY_0 / PAY_2 pioram"]
+    P -->|D3| X3["AGE ↓ / LIMIT_BAL ↓"]
+    X1 --> S[Score do modelo]
+    X2 --> S
+    X3 --> S
+    S --> D[Decisão de crédito]
+    R -->|C1| Y[Inadimplência real ↑]
+    D -.->|AUC cai| Y
+```
+
+| Cenário | Drift share | PSI do score | ROC AUC | Δ AUC | AUC recuperada ao remover |
+| :-- | --: | --: | --: | --: | --: |
+| Sem choque | 0% | 0,002 | 0,780 | | |
+| Choque completo | 67% | 0,087 | 0,642 | −0,138 | |
+| Só D1 inflação | 48% | 0,078 | 0,772 | −0,008 | 5% |
+| Só D2 desemprego | 10% | 0,071 | 0,742 | −0,038 | 14% |
+| Só D3 novo perfil | 10% | 0,021 | 0,762 | −0,018 | 7% |
+| Só C1 inadimplência silenciosa | **0%** | **0,002** | **0,678** | **−0,102** | **54%** |
+
+**Leitura.**
+
+- **A causa principal da queda de AUC é o concept drift (C1), e ele é invisível para o
+  monitor de data drift.** Sozinho, C1 responde por 74% da queda (−0,102 de −0,138) com
+  drift share 0% e PSI do score 0,002: as features e o score não mudam, só a relação entre
+  eles e a inadimplência. É a degradação silenciosa do enunciado.
+- **O drift mais visível é o menos danoso.** A inflação (D1) move 48% das features, mas
+  custa só 0,008 de AUC: faturas e pagamentos sobem e descem para todos, e o ranking de
+  risco se mantém.
+- **D2 e D3 são data drift que também quebram P(y|X).** O desemprego piora `PAY_0`
+  (a feature mais forte do modelo) sem que esses clientes inadimplam mais na simulação, e o
+  novo perfil muda idade e limite sem mudar o risco. Por isso tiram AUC mesmo sem rótulo
+  novo.
+- **Por que o PSI do score fica moderado (0,121 nos lotes mensais de jun).** Os
+  mecanismos se compensam: D2 empurra o score para cima (aprovação 59,6% no cenário
+  isolado) e D3 para baixo (73,9%). Removendo D3, o PSI do score sobe para 0,194. Um
+  monitor só de score subestima o choque.
+- **Os efeitos não são aditivos:** a soma das quedas isoladas (−0,166) passa da queda do
+  choque completo (−0,138), porque os mecanismos atingem os mesmos clientes.
+- **Maio abaixo de junho nos lotes mensais (AUC 0,607 vs. 0,640) é amostra, não
+  mecanismo.** Na dose-resposta sobre o holdout inteiro a AUC cai de forma monotônica
+  (0,780 → 0,742 → 0,711 → 0,684 → 0,661 → 0,642). Um lote de 1.000 clientes tem IC 95%
+  de cerca de ±0,035 na AUC; o lote de maio fica abaixo do intervalo esperado
+  (0,624 a 0,693), efeito dos clientes e sorteios daquele lote.
+- O drift share de 67% aqui é maior que os 52% do lote de jun porque, com 6.000 clientes,
+  o KS tem mais poder para confirmar mudanças moderadas.
+
+**Prescrição.**
+
+1. **Monitorar performance por safra, não só distribuição.** O PSI das features e do
+   score não detecta C1. Quando o rótulo da safra amadurece, a queda de AUC vs. baseline
+   (alerta `auc_drop`, limiar 0,05) é o sinal decisivo; até lá, acompanhar a
+   inadimplência precoce (primeiras faturas em atraso) como proxy.
+2. **Retreinar com a safra recente quando o rótulo chegar**, disparado pelo alerta de AUC
+   ou por dataset drift persistente; validar o novo modelo contra o holdout e a safra
+   recente antes de trocar o alias `production`.
+3. **Não reagir só ao volume de drift.** D1 gera o maior drift share com o menor dano:
+   um gatilho de retreino baseado apenas em drift share retreinaria pelo motivo errado.
+4. **Revisar a política com o negócio para o público novo (D3)**, que também cria
+   disparidade de aprovação por idade (ver Governança e LGPD).
+
 ## Comandos
 
 ```bash
@@ -163,6 +239,7 @@ make demo-contract   # demonstra o contrato aceitando o limpo e bloqueando o suj
 make simulate        # gera os lotes mensais de produção com drift
 make drift           # detecta drift e gera os relatórios (PSI, KS, Evidently)
 make fairness        # auditoria de equidade por grupo e comparação de variantes
+make causal          # ablação dos mecanismos de drift (análise causal)
 make validate        # lint + testes + gates de branch/commit/tag
 make test            # pytest
 make lint            # ruff
@@ -173,7 +250,7 @@ Fluxo completo do zero:
 
 ```bash
 make install && make data-download && make reference && make train && make demo-contract
-make simulate && make fairness && make drift
+make simulate && make fairness && make drift && make causal
 ```
 
 ## Governança e LGPD
