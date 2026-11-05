@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     paths: Paths = Field(default_factory=Paths)
     mlflow: MlflowCfg = Field(default_factory=MlflowCfg)
 
-    # Credenciais DagsHub — obrigatórias para tracking e remote do DVC.
+    # Credenciais DagsHub: obrigatórias para tracking e remote do DVC.
     dagshub_repo_owner: str = "JosueJNLui"
     dagshub_repo_name: str = "fiap-mlet-challenge-fase-4"
     dagshub_user: str | None = None

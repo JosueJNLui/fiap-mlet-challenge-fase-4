@@ -13,11 +13,31 @@ em lotes grandes, que acusa diferenças irrelevantes.
 
 O Evidently roda em paralelo (``DataDriftPreset`` com PSI + ``ClassificationPreset``) e
 gera os HTMLs em ``reports/drift/``. O PSI dele é gravado ao lado do nosso em
-``feature_drift_<mes>.csv`` como validação cruzada da implementação.
+``feature_drift_<mes>.csv`` como segunda opinião, mas **a decisão de drift usa o nosso**.
+Os dois coincidem nas features discretas (mesmas categorias) e divergem nas contínuas de
+cauda longa: o Evidently corta em bins de largura igual (regra de Sturges sobre referência
+e lote juntos), e nós, nos decis da referência. Em ``PAY_AMT1``, 98,7% da referência cai
+no primeiro dos 16 bins do Evidently, que fica cego à queda dos pagamentos (0,015 contra
+0,287 em jun); em ``BILL_AMT*`` a cauda que cresce atravessa bins largos e quase vazios na
+referência, e o Evidently pontua mais alto. Decis da referência são a prática de risco de
+crédito e dão o mesmo peso a cada faixa de clientes.
 
 Uso: ``make drift`` (depois de ``make train`` e ``make simulate``). Além dos relatórios,
 grava as predições do baseline para cada lote em
 ``data/processed/production/predictions_<mes>.csv`` (``ID``, ``score``, ``prediction``).
+
+Cada lote passa pelo contrato de dados (``schema.py``) antes de ser escorado. Lote
+reprovado (ex.: ``2026-06-corrupted``) é registrado como ``blocked`` em
+``reports/monitoring/pipeline_runs.jsonl``, não é escorado e entra em
+``blocked_batches`` no ``drift_summary.json``.
+
+Alertas (``alerts()``, limiares em ``Thresholds``) por mês: features com PSI crítico,
+dataset drift, queda de ROC AUC vs. baseline, inadimplência real afastada da do holdout,
+lote do mês bloqueado pelo contrato e equidade (atributo protegido que cumpria a regra
+dos 4/5 no holdout e deixou de cumprir no mês; ver ``fairness.py``).
+Vão para o ``drift_summary.json`` e, com ``DAGSHUB_TOKEN``, para uma run ``drift-*`` no
+MLflow com uma métrica por mês (``step`` = índice do mês) e os relatórios como artefatos.
+No fim, regenera o ``reports/monitoring/dashboard.html`` (``dashboard.py``).
 """
 
 from __future__ import annotations
@@ -29,13 +49,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import mlflow
 import numpy as np
 import pandas as pd
 from scipy.stats import ks_2samp
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 
+from creditmon import fairness
 from creditmon.config import Settings
-from creditmon.schema import CATEGORICAL_COLUMNS, ID_COLUMN, TARGET
+from creditmon.observability import LOG_PATH, logger, setup_logging, stage
+from creditmon.schema import (
+    CATEGORICAL_COLUMNS,
+    ID_COLUMN,
+    TARGET,
+    DataContractError,
+    validate_batch,
+)
+from creditmon.tracking import log_stage, tracked_run
 from creditmon.train import METRICS_PATH, MODEL_PATH
 
 EPS = 1e-4
@@ -52,6 +82,7 @@ class Thresholds:
     drift_share_critical: float = 0.30  # fração de features com drift = dataset drift
     auc_drop_critical: float = 0.05  # queda absoluta de AUC vs. baseline
     default_rate_shift: float = 0.05  # variação da inadimplência real vs. holdout
+    fairness_ratio_min: float = fairness.FOUR_FIFTHS  # razão de aprovação entre grupos
 
 
 THRESHOLDS = Thresholds()
@@ -102,7 +133,8 @@ def feature_drift(
     rows = []
     for col in features:
         p = psi(reference[col], current[col])
-        ks = ks_2samp(reference[col].dropna(), current[col].dropna())
+        # Assintótico: o exato falha com empates (features discretas); o lote real já passa de 10k.
+        ks = ks_2samp(reference[col].dropna(), current[col].dropna(), method="asymp")
         drift = p >= th.psi_critical or (p >= th.psi_warning and ks.pvalue < th.ks_pvalue)
         rows.append(
             {
@@ -131,6 +163,37 @@ def summarize(table: pd.DataFrame, th: Thresholds = THRESHOLDS) -> dict[str, Any
         "max_psi_feature": str(table.iloc[0]["feature"]),
         "max_psi": float(table.iloc[0]["psi"]),
         "dataset_drift": share >= th.drift_share_critical,
+    }
+
+
+def alerts(
+    record: dict[str, Any],
+    baseline_auc: float,
+    blocked: list[str],
+    baseline_fairness: dict[str, float | None],
+    baseline_default_rate: float,
+    th: Thresholds = THRESHOLDS,
+) -> dict[str, int]:
+    """Alertas do mês: contagem por tipo. Lote bloqueado conta no mês do nome (``2026-06-*``).
+
+    Equidade só alerta regressão: atributo com razão >= limiar no holdout e < limiar no mês.
+    Disparidade que já existe no holdout é achado da auditoria (``make fairness``), não alerta.
+    """
+    auc_drop = baseline_auc - record["performance"]["roc_auc"]
+    min_ratio = th.fairness_ratio_min
+    fair_ok = [a for a, r in baseline_fairness.items() if r is not None and r >= min_ratio]
+    return {
+        "psi_critical": len(record["drift"]["critical_features"]),
+        "dataset_drift": int(record["drift"]["dataset_drift"]),
+        "auc_drop": int(auc_drop > th.auc_drop_critical),
+        "default_shift": int(
+            abs(record["performance"]["default_rate"] - baseline_default_rate)
+            > th.default_rate_shift
+        ),
+        "contract_blocked": sum(name.startswith(record["month"]) for name in blocked),
+        "fairness": sum(
+            (record["fairness"].get(a) or 1.0) < min_ratio for a in fair_ok
+        ),
     }
 
 
@@ -327,51 +390,127 @@ def drift_markdown(records: list[dict[str, Any]], baseline: dict[str, Any]) -> s
     return "\n".join(lines) + "\n"
 
 
+def fairness_ratios(scored: pd.DataFrame) -> dict[str, float | None]:
+    """Razão de aprovação por atributo protegido num lote escorado."""
+    return fairness.ratios(fairness.audit(scored, scored[PREDICTION]))
+
+
+def ingest_batch(settings: Settings, name: str) -> pd.DataFrame | None:
+    """Carrega um lote de produção e passa pelo contrato; ``None`` se for bloqueado."""
+    from creditmon.simulation import load_batch
+
+    raw = load_batch(settings, name)
+    try:
+        with stage("ingest_production", batch=name, rows_in=len(raw)) as st:
+            batch = validate_batch(raw, name=name)
+            st["rows_out"] = len(batch)
+    except DataContractError as error:
+        logger.warning(f"{name}: lote bloqueado pelo contrato, não será escorado\n{error.summary}")
+        return None
+    return batch
+
+
 def run(settings: Settings, *, all_html: bool = False) -> list[dict[str, Any]]:
     """Compara cada lote de produção com a referência e grava os relatórios."""
     from creditmon.data import load_reference
-    from creditmon.simulation import MONTHS, load_batch, production_dir
+    from creditmon.simulation import CORRUPTED_BATCH, MONTHS, production_dir
 
     model = load_model()
     features = feature_columns(model)
-    reference, _ = load_reference(settings)
+    reference, holdout = load_reference(settings)
     reference_scored = score(model, reference)
-    baseline = load_baseline_metrics()
+    baseline = {**load_baseline_metrics(), "default_rate": float(holdout[TARGET].mean())}
+    baseline_fairness = fairness_ratios(score(model, holdout))
     out_dir = settings.paths.reports / "drift"
 
-    records = []
-    for i, month in enumerate(MONTHS):
-        batch_scored = score(model, load_batch(settings, month))
-        # Predições do modelo para o lote de produção (probabilidade e decisão por cliente).
-        predictions = batch_scored[[ID_COLUMN, SCORE, PREDICTION]]
-        predictions.to_csv(production_dir(settings) / f"predictions_{month}.csv", index=False)
-        save = all_html or i in (0, len(MONTHS) - 1)
-        record = analyze_batch(
-            month, reference_scored, batch_scored, features, out_dir, save_html=save
-        )
-        record["table_path"] = str(out_dir / f"feature_drift_{month}.csv")
+    records, blocked = [], []
+    for name in [*MONTHS, CORRUPTED_BATCH]:
+        batch = ingest_batch(settings, name)
+        if batch is None:
+            blocked.append(name)
+            continue
+        with stage("score_and_drift", batch=name, rows_in=len(batch)) as st:
+            batch_scored = score(model, batch)
+            # Predições do modelo para o lote de produção (probabilidade e decisão por cliente).
+            predictions = batch_scored[[ID_COLUMN, SCORE, PREDICTION]]
+            predictions.to_csv(production_dir(settings) / f"predictions_{name}.csv", index=False)
+            save = all_html or name in (MONTHS[0], MONTHS[-1])
+            record = analyze_batch(
+                name, reference_scored, batch_scored, features, out_dir, save_html=save
+            )
+            record["table_path"] = str(out_dir / f"feature_drift_{name}.csv")
+            record["fairness"] = fairness_ratios(batch_scored)
+            d = record["drift"]
+            st.update(
+                rows_out=len(predictions),
+                drift_share=d["drift_share"],
+                roc_auc=record["performance"]["roc_auc"],
+            )
         records.append(record)
-        d = record["drift"]
-        print(
-            f"{month}: {d['n_drifted']}/{d['n_features']} features com drift "
+        logger.info(
+            f"{name}: {d['n_drifted']}/{d['n_features']} features com drift "
             f"{d['drifted_features'][:5]} | AUC {record['performance']['roc_auc']:.3f}"
         )
 
+    for record in records:
+        record["alerts"] = alerts(
+            record, baseline["roc_auc"], blocked, baseline_fairness, baseline["default_rate"]
+        )
+        record["alerts_total"] = sum(record["alerts"].values())
+    summary = {
+        "baseline": {**baseline, "fairness": baseline_fairness},
+        "months": records,
+        "blocked_batches": blocked,
+    }
     (out_dir / "drift_summary.json").write_text(
-        json.dumps({"baseline": baseline, "months": records}, indent=2, ensure_ascii=False)
+        json.dumps(summary, indent=2, ensure_ascii=False)
     )
     (out_dir / "drift_report.md").write_text(drift_markdown(records, baseline), encoding="utf-8")
-    print(f"relatórios em {out_dir}/")
+    logger.info(f"relatórios em {out_dir}/")
     return records
 
 
+def log_to_mlflow(records: list[dict[str, Any]], out_dir: Path) -> None:
+    """Métricas por mês (``step`` = índice do mês), tag de alerta e relatórios como artefatos."""
+    from creditmon.simulation import MONTHS
+
+    for record in records:
+        metrics = {
+            "drift_share": record["drift"]["drift_share"],
+            "n_drifted": record["drift"]["n_drifted"],
+            "prediction_psi": record["prediction_psi"],
+            **record["performance"],
+            **{f"psi_{k}": v for k, v in record["psi_by_feature"].items()},
+            **{f"fairness_{k}": v for k, v in record["fairness"].items() if v is not None},
+            **{f"alerts_{k}": v for k, v in record["alerts"].items()},
+            "alerts_total": record["alerts_total"],
+        }
+        mlflow.log_metrics(metrics, step=MONTHS.index(record["month"]))
+    alerted = [r["month"] for r in records if r["alerts_total"]]
+    mlflow.set_tags({"alert": str(bool(alerted)).lower(), "alert_months": ",".join(alerted)})
+    mlflow.log_artifacts(str(out_dir), "drift")
+    mlflow.log_artifact(str(LOG_PATH), "monitoring")
+
+
 def main() -> int:
+    from creditmon import dashboard
     from creditmon.config import load_settings
 
     parser = argparse.ArgumentParser(description="Detecta drift nos lotes de produção.")
     parser.add_argument("--all-html", action="store_true", help="salva o HTML de todos os meses")
     args = parser.parse_args()
-    run(load_settings(), all_html=args.all_html)
+    setup_logging()
+    settings = load_settings()
+    with tracked_run(settings, "drift") as tracking:
+        with stage("drift") as st:
+            records = run(settings, all_html=args.all_html)
+            st.update(rows_in=sum(r["rows"] for r in records), batches_analyzed=len(records))
+        board = dashboard.build()
+        logger.info(f"dashboard: {board}")
+        if tracking:
+            log_to_mlflow(records, settings.paths.reports / "drift")
+            mlflow.log_artifact(str(board), "monitoring")
+            log_stage(st)
     return 0
 
 

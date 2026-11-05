@@ -63,3 +63,28 @@ def test_report_shows_predictions_per_month(tmp_path) -> None:
     }  # fmt: skip
     md = drift.drift_markdown([record], {"roc_auc": 0.78})
     assert "Score médio" in md and "Aprovação" in md and "70.0%" in md
+
+
+def test_alerts_flag_each_rule_and_assign_blocked_batch_to_its_month() -> None:
+    # EDUCATION já falhava no holdout: disparidade pré-existente não vira alerta mensal.
+    baseline_fairness = {"SEX": 0.95, "AGE": 0.86, "EDUCATION": 0.62, "MARRIAGE": None}
+    record = {
+        "month": "2026-06",
+        "drift": {"critical_features": ["PAY_0", "LIMIT_BAL"], "dataset_drift": True},
+        "performance": {"roc_auc": 0.70, "default_rate": 0.30},
+        "fairness": {"SEX": 0.97, "AGE": 0.75, "EDUCATION": 0.5, "MARRIAGE": 0.5},
+    }
+    assert drift.alerts(record, 0.78, ["2026-06-corrupted"], baseline_fairness, 0.22) == {
+        "psi_critical": 2,
+        "dataset_drift": 1,
+        "auc_drop": 1,
+        "default_shift": 1,
+        "contract_blocked": 1,
+        "fairness": 1,
+    }
+    calm = {**record, "month": "2026-01", "performance": {"roc_auc": 0.77, "default_rate": 0.25},
+            "drift": {"critical_features": [], "dataset_drift": False},
+            "fairness": {"SEX": 0.9, "AGE": 0.85, "EDUCATION": 0.6, "MARRIAGE": None}}
+    # Inadimplência 0,25 vs. 0,22 do holdout: dentro da tolerância de 5 p.p.
+    calm_alerts = drift.alerts(calm, 0.78, ["2026-06-corrupted"], baseline_fairness, 0.22)
+    assert sum(calm_alerts.values()) == 0

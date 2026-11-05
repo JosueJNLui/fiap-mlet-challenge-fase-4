@@ -167,7 +167,7 @@ def main() -> int:
         try:
             validate_batch(mutate(clean), name=label)
         except DataContractError as error:
-            print(f"rejeitado: {label} ({error.failure_count} violacoes)")
+            print(f"rejeitado: {label} ({error.failure_count} violações)")
         else:
             raise AssertionError(f"contrato deveria ter rejeitado: {label}")
 

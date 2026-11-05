@@ -17,3 +17,13 @@ def test_init_mlflow_fails_without_token() -> None:
     settings = Settings(dagshub_token=None)
     with pytest.raises(RuntimeError, match="DAGSHUB_TOKEN"):
         init_mlflow(settings)
+
+
+def test_tracked_run_skips_mlflow_without_token() -> None:
+    import mlflow
+
+    from creditmon.tracking import tracked_run
+
+    with tracked_run(Settings(dagshub_token=None), "drift") as tracking:
+        assert tracking is False
+        assert mlflow.active_run() is None

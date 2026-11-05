@@ -22,6 +22,10 @@ CONCEPT DRIFT, muda P(y|X):
 Os valores simulados respeitam os limites de sanidade do contrato (``schema.py``):
 dado com drift continua **válido**. É exatamente a distinção que o projeto quer
 mostrar, já que o contrato não pega drift e a detecção de drift não pega dado inválido.
+
+Para o contrato ter o que barrar na produção, ``make simulate`` grava também um lote
+extra (``CORRUPTED_BATCH``): uma cópia do último mês com violações deliberadas
+(``inject_contract_violations``). ``make drift`` tenta ingeri-lo e registra o bloqueio.
 """
 
 from __future__ import annotations
@@ -33,17 +37,20 @@ import numpy as np
 import pandas as pd
 
 from creditmon.config import Settings
+from creditmon.observability import logger, setup_logging, stage
 from creditmon.schema import (
     AGE_MIN,
     BILL_AMOUNT_COLUMNS,
     BILL_AMT_MAX,
     BILL_AMT_MIN,
+    ID_COLUMN,
     PAY_AMOUNT_COLUMNS,
     PAY_STATUS_MAX,
     TARGET,
 )
 
 MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"]
+CORRUPTED_BATCH = f"{MONTHS[-1]}-corrupted"
 MIN_LIMIT_BAL = 10_000
 
 
@@ -106,6 +113,24 @@ def apply_drift(
     return out.astype(frame.dtypes.to_dict())
 
 
+def inject_contract_violations(frame: pd.DataFrame) -> pd.DataFrame:
+    """Copia o lote e injeta 5 violações do contrato nas 5 primeiras linhas.
+
+    Nulo em ``LIMIT_BAL``, idade de menor, ``EDUCATION`` fora do domínio, alvo fora de
+    {0, 1} e ``ID`` duplicado: erros óbvios e reportáveis pelo Pandera.
+    """
+    if len(frame) < 5:
+        raise ValueError("o lote precisa de pelo menos 5 linhas para receber as violações")
+    bad = frame.copy()
+    idx = bad.index
+    bad.loc[idx[0], "LIMIT_BAL"] = pd.NA
+    bad.loc[idx[1], "AGE"] = 15
+    bad.loc[idx[2], "EDUCATION"] = 99
+    bad.loc[idx[3], TARGET] = 2
+    bad.loc[idx[4], ID_COLUMN] = bad.loc[idx[0], ID_COLUMN]
+    return bad
+
+
 def simulate_production(
     holdout: pd.DataFrame, seed: int, months: list[str] = MONTHS
 ) -> dict[str, pd.DataFrame]:
@@ -148,15 +173,29 @@ def main() -> int:
     """Gera os lotes mensais de produção em data/processed/production/."""
     from creditmon.config import load_settings
     from creditmon.data import load_reference
+    from creditmon.tracking import log_stage, tracked_run
 
+    setup_logging()
     settings = load_settings()
-    _, holdout = load_reference(settings)
-    batches = simulate_production(holdout, settings.seed)
-    for path, (month, frame) in zip(save_batches(settings, batches), batches.items(), strict=True):
-        print(
-            f"{path} ({len(frame):,} linhas, choque {severity(MONTHS.index(month)):.0%}, "
-            f"default {frame[TARGET].mean():.3f})"
-        )
+    with tracked_run(settings, "simulate"):
+        with stage("simulate") as st:
+            _, holdout = load_reference(settings)
+            batches = simulate_production(holdout, settings.seed)
+            paths = save_batches(settings, batches)
+            for path, (month, frame) in zip(paths, batches.items(), strict=True):
+                logger.info(
+                    f"{path} ({len(frame):,} linhas, choque {severity(MONTHS.index(month)):.0%}, "
+                    f"default {frame[TARGET].mean():.3f})"
+                )
+            corrupted = inject_contract_violations(batches[MONTHS[-1]])
+            (corrupted_path,) = save_batches(settings, {CORRUPTED_BATCH: corrupted})
+            logger.info(f"{corrupted_path} ({len(corrupted):,} linhas, 5 violações do contrato)")
+            st.update(
+                rows_in=len(holdout),
+                rows_out=sum(len(f) for f in batches.values()),
+                batches_written=len(paths) + 1,
+            )
+        log_stage(st)
     return 0
 
 

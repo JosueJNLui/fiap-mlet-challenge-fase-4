@@ -1,30 +1,41 @@
 {
   "baseline": {
-    "roc_auc": 0.7833143836941998,
-    "accuracy": 0.7601666666666667,
-    "precision": 0.4646860986547085,
-    "recall": 0.6313785224676314,
-    "f1": 0.535356796900226,
+    "roc_auc": 0.7803711908503548,
+    "accuracy": 0.759,
+    "precision": 0.4622802041973908,
+    "recall": 0.6207159177456207,
+    "f1": 0.5299089726918076,
     "confusion_matrix": [
       [
-        3732,
-        955
+        3739,
+        948
       ],
       [
-        484,
-        829
+        498,
+        815
       ]
     ],
     "test_size": 6000,
     "train_size": 24000,
-    "holdout_fraction": 0.2
+    "excluded_features": [
+      "SEX",
+      "MARRIAGE"
+    ],
+    "holdout_fraction": 0.2,
+    "default_rate": 0.21883333333333332,
+    "fairness": {
+      "SEX": 0.9499,
+      "EDUCATION": 0.6242,
+      "MARRIAGE": 0.7895,
+      "AGE": 0.8598
+    }
   },
   "months": [
     {
       "month": "2026-01",
       "rows": 1000,
       "drift": {
-        "n_features": 23,
+        "n_features": 21,
         "n_drifted": 0,
         "drift_share": 0.0,
         "drifted_features": [],
@@ -54,35 +65,48 @@
         "BILL_AMT1": 0.0043,
         "BILL_AMT3": 0.0032,
         "PAY_AMT4": 0.0032,
-        "EDUCATION": 0.002,
-        "SEX": 0.0013,
-        "MARRIAGE": 0.001
+        "EDUCATION": 0.002
       },
-      "prediction_psi": 0.012,
+      "prediction_psi": 0.0071,
       "performance": {
-        "roc_auc": 0.8012,
-        "ks": 0.4801,
-        "precision": 0.4638,
-        "recall": 0.6746,
-        "f1": 0.5497,
+        "roc_auc": 0.8014,
+        "ks": 0.4794,
+        "precision": 0.4728,
+        "recall": 0.6651,
+        "f1": 0.5527,
         "default_rate": 0.209,
-        "mean_score": 0.4098,
-        "approval_rate": 0.696
+        "mean_score": 0.408,
+        "approval_rate": 0.706
       },
       "evidently": {
         "evidently_drifted_columns": 0,
         "evidently_drift_share": 0.0,
         "html": "reports/drift/evidently_2026-01.html"
       },
-      "table_path": "reports/drift/feature_drift_2026-01.csv"
+      "table_path": "reports/drift/feature_drift_2026-01.csv",
+      "fairness": {
+        "SEX": 0.9398,
+        "EDUCATION": 0.7823,
+        "MARRIAGE": 0.9347,
+        "AGE": 0.8792
+      },
+      "alerts": {
+        "psi_critical": 0,
+        "dataset_drift": 0,
+        "auc_drop": 0,
+        "default_shift": 0,
+        "contract_blocked": 0,
+        "fairness": 0
+      },
+      "alerts_total": 0
     },
     {
       "month": "2026-02",
       "rows": 1000,
       "drift": {
-        "n_features": 23,
+        "n_features": 21,
         "n_drifted": 1,
-        "drift_share": 0.043,
+        "drift_share": 0.048,
         "drifted_features": [
           "PAY_2"
         ],
@@ -112,34 +136,47 @@
         "PAY_5": 0.0066,
         "PAY_3": 0.0053,
         "EDUCATION": 0.0049,
-        "PAY_4": 0.0039,
-        "SEX": 0.0037,
-        "MARRIAGE": 0.0001
+        "PAY_4": 0.0039
       },
-      "prediction_psi": 0.0271,
+      "prediction_psi": 0.0252,
       "performance": {
-        "roc_auc": 0.7791,
-        "ks": 0.4472,
-        "precision": 0.4755,
-        "recall": 0.6352,
-        "f1": 0.5439,
+        "roc_auc": 0.7695,
+        "ks": 0.4365,
+        "precision": 0.4785,
+        "recall": 0.6393,
+        "f1": 0.5474,
         "default_rate": 0.244,
-        "mean_score": 0.4426,
+        "mean_score": 0.4401,
         "approval_rate": 0.674
       },
       "evidently": {
         "evidently_drifted_columns": 1,
-        "evidently_drift_share": 0.0417
+        "evidently_drift_share": 0.0455
       },
-      "table_path": "reports/drift/feature_drift_2026-02.csv"
+      "table_path": "reports/drift/feature_drift_2026-02.csv",
+      "fairness": {
+        "SEX": 0.9847,
+        "EDUCATION": 0.8346,
+        "MARRIAGE": 0.8941,
+        "AGE": 0.8993
+      },
+      "alerts": {
+        "psi_critical": 0,
+        "dataset_drift": 0,
+        "auc_drop": 0,
+        "default_shift": 0,
+        "contract_blocked": 0,
+        "fairness": 0
+      },
+      "alerts_total": 0
     },
     {
       "month": "2026-03",
       "rows": 1000,
       "drift": {
-        "n_features": 23,
+        "n_features": 21,
         "n_drifted": 2,
-        "drift_share": 0.087,
+        "drift_share": 0.095,
         "drifted_features": [
           "PAY_2",
           "AGE"
@@ -172,34 +209,47 @@
         "PAY_6": 0.0087,
         "EDUCATION": 0.0085,
         "PAY_3": 0.0072,
-        "PAY_5": 0.0071,
-        "SEX": 0.0027,
-        "MARRIAGE": 0.0024
+        "PAY_5": 0.0071
       },
-      "prediction_psi": 0.0204,
+      "prediction_psi": 0.0164,
       "performance": {
-        "roc_auc": 0.7331,
-        "ks": 0.379,
-        "precision": 0.4585,
-        "recall": 0.5984,
-        "f1": 0.5192,
+        "roc_auc": 0.7339,
+        "ks": 0.3696,
+        "precision": 0.4458,
+        "recall": 0.5783,
+        "f1": 0.5035,
         "default_rate": 0.249,
-        "mean_score": 0.4365,
-        "approval_rate": 0.675
+        "mean_score": 0.436,
+        "approval_rate": 0.677
       },
       "evidently": {
         "evidently_drifted_columns": 2,
-        "evidently_drift_share": 0.0833
+        "evidently_drift_share": 0.0909
       },
-      "table_path": "reports/drift/feature_drift_2026-03.csv"
+      "table_path": "reports/drift/feature_drift_2026-03.csv",
+      "fairness": {
+        "SEX": 0.9171,
+        "EDUCATION": 0.7905,
+        "MARRIAGE": 0.9461,
+        "AGE": 0.76
+      },
+      "alerts": {
+        "psi_critical": 1,
+        "dataset_drift": 0,
+        "auc_drop": 0,
+        "default_shift": 0,
+        "contract_blocked": 0,
+        "fairness": 1
+      },
+      "alerts_total": 2
     },
     {
       "month": "2026-04",
       "rows": 1000,
       "drift": {
-        "n_features": 23,
+        "n_features": 21,
         "n_drifted": 6,
-        "drift_share": 0.261,
+        "drift_share": 0.286,
         "drifted_features": [
           "PAY_2",
           "AGE",
@@ -236,34 +286,47 @@
         "PAY_3": 0.009,
         "PAY_6": 0.0073,
         "EDUCATION": 0.0059,
-        "PAY_5": 0.004,
-        "MARRIAGE": 0.0017,
-        "SEX": 0.0006
+        "PAY_5": 0.004
       },
-      "prediction_psi": 0.0563,
+      "prediction_psi": 0.0452,
       "performance": {
-        "roc_auc": 0.7006,
-        "ks": 0.3132,
-        "precision": 0.4143,
-        "recall": 0.6067,
-        "f1": 0.4924,
+        "roc_auc": 0.6951,
+        "ks": 0.3167,
+        "precision": 0.4142,
+        "recall": 0.588,
+        "f1": 0.4861,
         "default_rate": 0.267,
-        "mean_score": 0.464,
-        "approval_rate": 0.609
+        "mean_score": 0.4601,
+        "approval_rate": 0.621
       },
       "evidently": {
         "evidently_drifted_columns": 6,
-        "evidently_drift_share": 0.25
+        "evidently_drift_share": 0.2727
       },
-      "table_path": "reports/drift/feature_drift_2026-04.csv"
+      "table_path": "reports/drift/feature_drift_2026-04.csv",
+      "fairness": {
+        "SEX": 0.9115,
+        "EDUCATION": 0.9274,
+        "MARRIAGE": 0.8647,
+        "AGE": 0.7873
+      },
+      "alerts": {
+        "psi_critical": 1,
+        "dataset_drift": 0,
+        "auc_drop": 1,
+        "default_shift": 0,
+        "contract_blocked": 0,
+        "fairness": 1
+      },
+      "alerts_total": 3
     },
     {
       "month": "2026-05",
       "rows": 1000,
       "drift": {
-        "n_features": 23,
+        "n_features": 21,
         "n_drifted": 5,
-        "drift_share": 0.217,
+        "drift_share": 0.238,
         "drifted_features": [
           "PAY_2",
           "AGE",
@@ -297,37 +360,50 @@
         "BILL_AMT5": 0.0769,
         "LIMIT_BAL": 0.0439,
         "PAY_4": 0.0186,
-        "MARRIAGE": 0.016,
         "PAY_6": 0.0149,
         "PAY_3": 0.0146,
         "EDUCATION": 0.0088,
-        "PAY_5": 0.0081,
-        "SEX": 0.0002
+        "PAY_5": 0.0081
       },
-      "prediction_psi": 0.0563,
+      "prediction_psi": 0.064,
       "performance": {
-        "roc_auc": 0.6092,
-        "ks": 0.2177,
-        "precision": 0.3798,
-        "recall": 0.4964,
-        "f1": 0.4303,
+        "roc_auc": 0.6073,
+        "ks": 0.2347,
+        "precision": 0.3792,
+        "recall": 0.4821,
+        "f1": 0.4245,
         "default_rate": 0.28,
-        "mean_score": 0.4583,
-        "approval_rate": 0.634
+        "mean_score": 0.4554,
+        "approval_rate": 0.644
       },
       "evidently": {
         "evidently_drifted_columns": 8,
-        "evidently_drift_share": 0.3333
+        "evidently_drift_share": 0.3636
       },
-      "table_path": "reports/drift/feature_drift_2026-05.csv"
+      "table_path": "reports/drift/feature_drift_2026-05.csv",
+      "fairness": {
+        "SEX": 0.927,
+        "EDUCATION": 0.6541,
+        "MARRIAGE": 0.8845,
+        "AGE": 0.7055
+      },
+      "alerts": {
+        "psi_critical": 2,
+        "dataset_drift": 0,
+        "auc_drop": 1,
+        "default_shift": 1,
+        "contract_blocked": 0,
+        "fairness": 1
+      },
+      "alerts_total": 5
     },
     {
       "month": "2026-06",
       "rows": 1000,
       "drift": {
-        "n_features": 23,
+        "n_features": 21,
         "n_drifted": 11,
-        "drift_share": 0.478,
+        "drift_share": 0.524,
         "drifted_features": [
           "PAY_2",
           "AGE",
@@ -372,27 +448,43 @@
         "PAY_4": 0.0134,
         "PAY_3": 0.0093,
         "EDUCATION": 0.0075,
-        "PAY_6": 0.0072,
-        "MARRIAGE": 0.001,
-        "SEX": 0.0002
+        "PAY_6": 0.0072
       },
-      "prediction_psi": 0.105,
+      "prediction_psi": 0.1213,
       "performance": {
-        "roc_auc": 0.6428,
-        "ks": 0.2348,
-        "precision": 0.4014,
-        "recall": 0.5567,
-        "f1": 0.4665,
+        "roc_auc": 0.6402,
+        "ks": 0.2376,
+        "precision": 0.4085,
+        "recall": 0.5433,
+        "f1": 0.4664,
         "default_rate": 0.3,
-        "mean_score": 0.4859,
-        "approval_rate": 0.584
+        "mean_score": 0.4804,
+        "approval_rate": 0.601
       },
       "evidently": {
         "evidently_drifted_columns": 11,
-        "evidently_drift_share": 0.4583,
+        "evidently_drift_share": 0.5,
         "html": "reports/drift/evidently_2026-06.html"
       },
-      "table_path": "reports/drift/feature_drift_2026-06.csv"
+      "table_path": "reports/drift/feature_drift_2026-06.csv",
+      "fairness": {
+        "SEX": 0.9889,
+        "EDUCATION": 0.8396,
+        "MARRIAGE": 0.7796,
+        "AGE": 0.7463
+      },
+      "alerts": {
+        "psi_critical": 4,
+        "dataset_drift": 1,
+        "auc_drop": 1,
+        "default_shift": 1,
+        "contract_blocked": 1,
+        "fairness": 1
+      },
+      "alerts_total": 9
     }
+  ],
+  "blocked_batches": [
+    "2026-06-corrupted"
   ]
 }

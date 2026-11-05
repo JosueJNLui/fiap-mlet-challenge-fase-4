@@ -1,7 +1,7 @@
 [project]
 name = "fiap-mlet-challenge-fase-4"
 version = "0.1.0"
-description = "Observabilidade, deteccao de drift e governanca para um modelo de credit scoring em producao."
+description = "Observabilidade, detecção de drift e governança para um modelo de credit scoring em produção."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -24,7 +24,7 @@ dev = [
     "commitizen>=4.16.2",
     "pytest>=8.0.0",
     "ruff>=0.14.0",
-    # Le o .xls binario do dataset da UCI (formato OLE2, nao e um CSV renomeado).
+    # Lê o .xls binário do dataset da UCI (formato OLE2, não é um CSV renomeado).
     "xlrd>=2.0.2",
 ]
 
@@ -35,7 +35,7 @@ version_provider = "pep621"
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"  # menor versao suportada (requires-python >=3.12)
+target-version = "py312"  # menor versão suportada (requires-python >=3.12)
 src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]

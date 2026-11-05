@@ -1,15 +1,15 @@
 # Relatório de drift: produção vs. referência
 
-Baseline (holdout): ROC AUC = **0.783**. Critério: PSI ≥ 0.25 ou (PSI ≥ 0.1 e KS p < 0.05).
+Baseline (holdout): ROC AUC = **0.780**. Critério: PSI ≥ 0.25 ou (PSI ≥ 0.1 e KS p < 0.05).
 
 | Mês | Features com drift | Drift share | Score médio | Aprovação | PSI do score | ROC AUC | Default real |
 |---|---|---|---|---|---|---|---|
-| 2026-01 | nenhuma | 0% | 0.410 | 69.6% | 0.012 | 0.801 | 20.9% |
-| 2026-02 | PAY_2 | 4% | 0.443 | 67.4% | 0.027 | 0.779 | 24.4% |
-| 2026-03 | PAY_2, AGE | 9% | 0.436 | 67.5% | 0.020 | 0.733 | 24.9% |
-| 2026-04 | PAY_2, AGE, PAY_0, PAY_AMT1, PAY_AMT4, PAY_AMT6 | 26% | 0.464 | 60.9% | 0.056 | 0.701 | 26.7% |
-| 2026-05 | PAY_2, AGE, PAY_0, PAY_AMT2, PAY_AMT1 | 22% | 0.458 | 63.4% | 0.056 | 0.609 | 28.0% |
-| 2026-06 | PAY_2, AGE, PAY_AMT1, PAY_AMT2, PAY_0, PAY_AMT3, PAY_AMT4, PAY_AMT5, PAY_AMT6, LIMIT_BAL, BILL_AMT1 | 48% | 0.486 | 58.4% | 0.105 | 0.643 | 30.0% |
+| 2026-01 | nenhuma | 0% | 0.408 | 70.6% | 0.007 | 0.801 | 20.9% |
+| 2026-02 | PAY_2 | 5% | 0.440 | 67.4% | 0.025 | 0.769 | 24.4% |
+| 2026-03 | PAY_2, AGE | 10% | 0.436 | 67.7% | 0.016 | 0.734 | 24.9% |
+| 2026-04 | PAY_2, AGE, PAY_0, PAY_AMT1, PAY_AMT4, PAY_AMT6 | 29% | 0.460 | 62.1% | 0.045 | 0.695 | 26.7% |
+| 2026-05 | PAY_2, AGE, PAY_0, PAY_AMT2, PAY_AMT1 | 24% | 0.455 | 64.4% | 0.064 | 0.607 | 28.0% |
+| 2026-06 | PAY_2, AGE, PAY_AMT1, PAY_AMT2, PAY_0, PAY_AMT3, PAY_AMT4, PAY_AMT5, PAY_AMT6, LIMIT_BAL, BILL_AMT1 | 52% | 0.480 | 60.1% | 0.121 | 0.640 | 30.0% |
 
 ## Variáveis degradadas no último mês (2026-06)
 

@@ -217,11 +217,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# MLflow (tracking fica no DagsHub; aqui so o store local, se algum run escapa)
+# MLflow (tracking fica no DagsHub; aqui só o store local, se algum run escapa)
 mlruns/
 
-# Artefatos do pipeline (gerados por creditmon.*). reports/ NAO e ignorado de proposito:
-# o brief pede "relatorios HTML gerados comprovando o monitoramento" como evidencia no repo.
+# Artefatos do pipeline (gerados por creditmon.*). reports/ NÃO é ignorado de propósito:
+# o brief pede "relatórios HTML gerados comprovando o monitoramento" como evidência no repo.
 /data/processed/
 /models/
 

@@ -1,1 +1,1 @@
-"""Monitoramento, deteccao de drift e governanca do modelo de credit scoring."""
+"""Monitoramento, detecção de drift e governança do modelo de credit scoring."""
