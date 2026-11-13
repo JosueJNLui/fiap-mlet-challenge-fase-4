@@ -55,7 +55,7 @@ flowchart LR
 
 | O quê | Onde |
 |---|---|
-| Vídeo STAR (até 5 min) | _a preencher_ |
+| Vídeo STAR (até 5 min) | https://youtu.be/P7eaD5AvT9A |
 | MLflow (runs, métricas, Model Registry) | https://dagshub.com/JosueJNLui/fiap-mlet-challenge-fase-4.mlflow |
 | Repositório no DagsHub (DVC) | https://dagshub.com/JosueJNLui/fiap-mlet-challenge-fase-4 |
 | Dataset | [UCI: Default of Credit Card Clients](https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients) |
@@ -781,7 +781,7 @@ make validate-env
 
 ## 11. Vídeo STAR
 
-Link: _a preencher_
+Link: https://youtu.be/P7eaD5AvT9A
 
 Roteiro (formato STAR, até 5 minutos): a **situação** da fintech com o modelo degradando em
 silêncio, a **tarefa** de construir a camada de sustentação, as **ações** demonstradas ao vivo
